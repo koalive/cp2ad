@@ -82,9 +82,9 @@ def _is_numeric(coltype: str) -> bool:
 
 def _var_columns(ctx: Context, obj: str):
     """Expand the object's biology-describing features into (var_name, backend, feature) rows for
-    X/var; Pearson yields two rows. Extrinsic measurements (is_extrinsic: position/orientation,
-    identifiers, linkage) are excluded here -- they go to obs instead, via _extrinsic_columns, so
-    they cannot bias morphological similarity in X."""
+    X/var; Pearson yields two rows. is_extrinsic excludes position/orientation and identity/linkage
+    measurements here; _extrinsic_columns sends those to obs instead, so they cannot bias
+    morphological similarity in X."""
     rows = []
     seen = set()
     for f in ctx.features:
@@ -99,9 +99,9 @@ def _var_columns(ctx: Context, obj: str):
 
 
 def _extrinsic_columns(ctx: Context, obj: str):
-    """Like _var_columns, but for the measurements is_extrinsic excludes -- same (name, backend,
-    feature) row shape, so build_object_table can fill both with one pass over the object's
-    features, but destined for obs rather than X."""
+    """Like _var_columns, but for the measurements is_extrinsic excludes. Same (name, backend,
+    feature) row shape, so build_object_table fills both in one pass over the object's features;
+    these are destined for obs rather than X."""
     rows = []
     seen = set()
     for f in ctx.features:
@@ -195,10 +195,11 @@ def build_object_table(ctx: Context, m, obj: str) -> Table:
 
     # ---- fill X feature-major: one get_measurement call per feature across every image set, one
     # float64 series alive at a time, written straight into the float32 X rows it belongs to, then
-    # dropped -- peak memory stays ~= X (float32) + one feature's float64 series. Extrinsic features
-    # (extrinsic_rows: position/orientation, identifiers, linkage) are filled the same way but into
-    # obs_extrinsic, not X: they don't describe the object's own biology and would bias similarity
-    # in X on position, rotation, or an arbitrary CellProfiler label instead. ----
+    # dropped -- peak memory stays ~= X (float32) + one feature's float64 series.
+    #
+    # extrinsic_rows (position/orientation, identifiers, linkage) get the same treatment, filled
+    # into obs_extrinsic instead of X. None of them describe the object's own biology, so leaving
+    # them in X would bias similarity on position, rotation, or an arbitrary CellProfiler label. ----
     X = numpy.full((n_rows, len(rows)), numpy.nan, dtype=numpy.float32)
     obs_extrinsic = numpy.full((n_rows, len(extrinsic_rows)), numpy.nan, dtype=numpy.float32)
     spatial_arr = numpy.full((n_rows, 2), numpy.nan)

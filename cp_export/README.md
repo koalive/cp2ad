@@ -56,54 +56,60 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
 ```
 
 ## What lands where
-- `X`: float32, NaN kept, no constant-column drop. Only numeric CellProfiler columns (`float`, `integer`)
-  become features, and only the ones that describe the object's own morphology, intensity or texture;
-  `varchar`/`blob` measurements are left out, and so is anything extrinsic to the object's own biology
-  (see below).
+- `X`: float32, NaN kept, no constant-column drop. Only numeric CellProfiler columns (`float`,
+  `integer`) become features, and only the ones that describe the object's own morphology,
+  intensity or texture. `varchar`/`blob` measurements are left out, and so is anything extrinsic to
+  the object's own biology (see below).
 - `var`: `cp_name`, `module_num`, `module_name`, `category`, `measurement`, `channel`, `channel2`,
   `other_object`, `scale`, `coltype`, `parsed_by` (`api`|`fallback`), `region`.
-- **Extrinsic measurements never reach `X`/`var`.** Two objects with identical biology should land at
-  the same point in feature space regardless of where they were imaged, how the sample was rotated, or
-  what label CellProfiler happened to assign them or their neighbors -- so these go to `obs` instead, as
-  `cp_measure`-named columns (`Center_X`, `Orientation`, `Parent_Nuclei`, ...) on the per-object files
-  and `<Object>__<name>` (e.g. `Nuclei__Center_X`, `Cells__Number_Object_Number`) on the joined file.
-  `is_extrinsic()` in `cpexport/names.py` is the single source of truth for the split; it currently covers:
-  - **Position/orientation**: the whole `Location` category (an object's own center and, per channel,
-    its intensity-weighted/max-intensity center -- all absolute pixel coordinates) plus the `AreaShape`
-    measurements that are themselves a coordinate or an angle in the image frame (`Center_X`/`Y`, the
-    four `BoundingBox{Minimum,Maximum}_{X,Y}` corners, `Orientation`).
-  - **Identity and linkage**: `Number_Object_Number` (the object's own arbitrary label -- already
-    carried as `obs["label_id"]`), `Parent_<Object>` (a label *referencing another row*, not a
-    measurement of this one), `Children_<Object>_Count` (already surfaced on the joined file as
-    `count_<child>` for non-role children -- see below; kept out of `X` so it isn't carried twice,
-    inconsistently), and `Neighbors_{First,Second}ClosestObjectNumber` (another object's label, same
-    problem as `Parent_*`).
-  - Deliberately **excluded** from this list, i.e. kept in `X`: `Neighbors_NumberOfNeighbors`,
-    `Neighbors_PercentTouching`, `Neighbors_{First,Second}ClosestDistance` and
-    `Neighbors_AngleBetweenNeighbors` -- local crowding/density and the alignment between neighboring
-    cells are treated as biology here, not imaging artifacts, unlike an object's own absolute position.
+- **Extrinsic measurements never reach `X`/`var`.** Two objects with identical biology should land
+  at the same point in feature space no matter where they were imaged, how the sample was rotated,
+  or what label CellProfiler happened to assign them or their neighbors. These go to `obs` instead:
+  `cp_measure`-named columns (`Center_X`, `Orientation`, `Parent_Nuclei`, ...) on the per-object
+  files, `<Object>__<name>` (e.g. `Nuclei__Center_X`, `Cells__Number_Object_Number`) on the joined
+  file. `is_extrinsic()` in `cpexport/names.py` is the single source of truth for the split; it
+  currently covers:
+  - **Position and orientation**: the whole `Location` category (an object's own center and, per
+    channel, its intensity-weighted/max-intensity center, all absolute pixel coordinates) plus the
+    `AreaShape` measurements that are themselves a coordinate or an angle in the image frame
+    (`Center_X`/`Y`, the four `BoundingBox{Minimum,Maximum}_{X,Y}` corners, `Orientation`).
+  - **Identity and linkage**: `Number_Object_Number` (the object's own arbitrary label, already
+    carried as `obs["label_id"]`), `Parent_<Object>` (a label referencing another row, not a
+    measurement of this one), `Children_<Object>_Count` (the joined file already surfaces this as
+    `count_<child>` for non-role children, see below, so it stays out of `X` rather than duplicating
+    that value under a second, inconsistent name), and `Neighbors_{First,Second}ClosestObjectNumber`
+    (another object's label, the same problem as `Parent_*`).
+  - Deliberately **kept in `X`**: `Neighbors_NumberOfNeighbors`, `Neighbors_PercentTouching`,
+    `Neighbors_{First,Second}ClosestDistance` and `Neighbors_AngleBetweenNeighbors`. Local crowding,
+    density, and the alignment between neighboring cells count as biology here, unlike an object's
+    own absolute position.
+  - Press **"Press button to see where each object and measurement will land"** on the module
+    itself to see this split applied to your own pipeline, before running it, with the exact
+    resulting name for every object and measurement; check **"Also write the object/measurement
+    tables as CSV?"** to save that same information as `<prefix>_objects.csv` and
+    `<prefix>_measurements.csv` on every run.
 - `obs`: `region`, `label_id`, `ImageNumber`, `Metadata_*`, `n_missing_features`, the extrinsic
-  columns above, plus `qc_flag` and `count_<child>` **on the joined file only** (the per-object files
-  have neither). `obs_names`: `<Plate>_<Well>_<Site>_<label>` when Metadata Plate/Well/Site exist, else
-  `img<n>_<label>`.
-- `obsm["spatial"]`: cell centers in site pixel coordinates (the base object's `Location_Center_X/Y`,
-  independent of and in addition to the same values under `obs["Center_X"/"Center_Y"]` /
-  `obs["<base object>__Center_X"/"Center_Y"]` -- `obsm["spatial"]` is for spatial-analysis tooling that
-  expects it there, e.g. squidpy).
+  columns above, plus `qc_flag` and `count_<child>` **on the joined file only** (the per-object
+  files have neither). `obs_names`: `<Plate>_<Well>_<Site>_<label>` when Metadata Plate/Well/Site
+  exist, else `img<n>_<label>`.
+- `obsm["spatial"]`: cell centers in site pixel coordinates, the base object's `Location_Center_X/Y`.
+  This duplicates `obs["Center_X"/"Center_Y"]` / `obs["<base object>__Center_X"/"Center_Y"]` on
+  purpose: `obsm["spatial"]` is for spatial-analysis tooling that expects it there, e.g. squidpy.
 - `uns["spatialdata_attrs"]`: region/instance keys (drops into SpatialData as a TableModel).
-- `uns["qc_summary"]` counts are computed before any `Drop` filtering. `qc_flag` values: `ok`, `no_primary`,
-  `multi_secondary_per_primary`, `no_tertiary`, `multi_tertiary`; plus the summary-only count
-  `primaries_without_secondary`.
-- `uns["cellprofiler_join"]` (joined file), keyed by role (`primary`, `tertiary`): how each compartment was matched to the base row -- the
-  `Parent_<Object>` column, or `shared_label_id` when one FilterObjects module relabelled both objects
-  (the JUMP chain writes no `Parent_Nuclei`). Neither available -> the run stops with a `JoinError`.
-- setting texts stored as `uns` keys have `/` replaced by `|` (HDF5 path separator); a `None` value is
-  written as a string scalar `""` (`.h5ad` has no null).
+- `uns["qc_summary"]` counts are computed before any `Drop` filtering. `qc_flag` values: `ok`,
+  `no_primary`, `multi_secondary_per_primary`, `no_tertiary`, `multi_tertiary`; plus the
+  summary-only count `primaries_without_secondary`.
+- `uns["cellprofiler_join"]` (joined file), keyed by role (`primary`, `tertiary`): how each
+  compartment was matched to the base row. Either the `Parent_<Object>` column, or
+  `shared_label_id` when one FilterObjects module relabelled both objects (the JUMP chain writes no
+  `Parent_Nuclei`). If neither is available the run stops with a `JoinError`.
+- setting texts stored as `uns` keys have `/` replaced by `|` (HDF5 path separator); a `None` value
+  is written as a string scalar `""` (`.h5ad` has no null).
 - `uns["cellprofiler"]`: CP version, pipeline text, modules (`setting_values` keeps repeated setting
   texts, e.g. one row per texture scale; the collapsed first-occurrence-only `settings` dict is
-  internal to the exporter and is not exported), channels, objects (with `source`: `pipeline`|`file`),
-  roles, role_detection, relationships, all image-level measurements (thresholds, counts, QC, timings), experiment
-  measurements and exporter settings.
+  internal to the exporter and is not exported), channels, objects (with `source`: `pipeline`|
+  `file`), roles, role_detection, relationships, all image-level measurements (thresholds, counts,
+  QC, timings), experiment measurements and exporter settings.
 
 ## Scaling
 Sized for **per-well or per-site-batch CellProfiler runs**. Nothing is streamed: `run()` is a no-op and the

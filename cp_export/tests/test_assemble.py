@@ -76,8 +76,8 @@ def test_obs_with_plate_metadata_and_two_sites(ctx, meas_arrays):
 
 
 def test_location_and_orientation_go_to_obs_not_x(ctx, meas_arrays):
-    """Position/orientation measurements must never enter X -- they'd bias morphological
-    similarity on where in the image (or how) an object happened to be imaged, not its biology."""
+    """Position/orientation measurements must never enter X. They'd bias morphological similarity
+    on where in the image, or how, an object happened to be imaged, not its biology."""
     t = build_object_table(ctx, make_measurements(meas_arrays), "Cells")
     for name in ("Center_X", "Center_Y", "Orientation"):
         assert name not in t.var_names, name
@@ -91,7 +91,7 @@ def test_location_and_orientation_go_to_obs_not_x(ctx, meas_arrays):
 
 def test_identity_and_linkage_go_to_obs_not_x(ctx, meas_arrays):
     """An object's own arbitrary label, a Parent_* reference to another object's label, and a
-    Children_*_Count summary are bookkeeping, not morphology -- same reasoning as position/
+    Children_*_Count summary are bookkeeping, not morphology, for the same reason as position and
     orientation, so they must never enter X either."""
     t = build_object_table(ctx, make_measurements(meas_arrays), "Cells")
     for name in ("Number_Object_Number", "Parent_Nuclei", "Children_Cytoplasm_Count"):
@@ -137,7 +137,7 @@ def test_join_one_row_per_cell(ctx, meas_arrays):
 
 def test_join_location_and_orientation_go_to_prefixed_obs(ctx, meas_arrays):
     """Joined table: each compartment's Location/orientation columns land in obs, prefixed the same
-    way var_names are (`{object}__{name}`), and never in var/X."""
+    way var_names are (`{object}__{name}`). They never appear in var/X."""
     m = make_measurements(meas_arrays)
     t = join_tables(ctx, m, _tables(ctx, m))
     for bad in ("Cells__Center_X", "Nuclei__Center_X", "Cells__Orientation", "Center_X", "Orientation"):
@@ -152,8 +152,8 @@ def test_join_location_and_orientation_go_to_prefixed_obs(ctx, meas_arrays):
 
 
 def test_join_identity_and_linkage_go_to_prefixed_obs(ctx, meas_arrays):
-    """Joined table: Number_Object_Number/Parent_*/Children_*_Count land in obs, prefixed like
-    every other compartment column, and never in var/X -- an arbitrary label or a reference to
+    """Joined table: Number_Object_Number/Parent_*/Children_*_Count land in obs, prefixed like every
+    other compartment column. They never appear in var/X: an arbitrary label or a reference to
     another row is not a measurement of this cell."""
     m = make_measurements(meas_arrays)
     t = join_tables(ctx, m, _tables(ctx, m))

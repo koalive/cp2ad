@@ -16,18 +16,18 @@ CELLPROFILER = "cellprofiler"
 _DIRECTIONAL = {"Manders", "RWC", "Costes"}
 _NOT_IN_CPM = {"K", "KS", "Overlap"}
 
-# AreaShape measurements that are pixel coordinates or an angle in the image frame rather than a
-# shape descriptor -- MeasureObjectSizeShape reports these alongside Area/Eccentricity/etc. under
-# the same category, so they cannot be told apart by category alone the way Location can.
+# AreaShape measurements that are pixel coordinates or an angle in the image frame, not a shape
+# descriptor. MeasureObjectSizeShape reports these alongside Area/Eccentricity/etc. under the same
+# category, so category alone can't separate them the way it does for Location.
 _SPATIAL_AREASHAPE = {"Center_X", "Center_Y", "Orientation",
                       "BoundingBoxMinimum_X", "BoundingBoxMinimum_Y",
                       "BoundingBoxMaximum_X", "BoundingBoxMaximum_Y"}
 
-# Neighbors measurements that name another object rather than measuring or relating to this one --
-# a label with no biological content, the same problem as Parent_<object>. The rest of the category
+# Neighbors measurements that name another object instead of measuring or relating to this one: a
+# label with no biological content, the same problem as Parent_<object>. The rest of the category
 # (NumberOfNeighbors, PercentTouching, {First,Second}ClosestDistance, AngleBetweenNeighbors) stays
-# in X: crowding/density and the alignment between neighboring cells are treated as biology here,
-# not imaging artifacts.
+# in X. Crowding, density, and the alignment between neighboring cells count as biology here, not
+# imaging artifacts.
 _NEIGHBOR_IDENTIFIERS = {"FirstClosestObjectNumber", "SecondClosestObjectNumber"}
 
 
@@ -62,24 +62,27 @@ def _cp_only(f: Feature) -> List[Tuple[str, str]]:
 
 
 def is_extrinsic(f: Feature) -> bool:
-    """True for measurements that do not describe the object's own morphology or intensity, and so
-    would bias downstream similarity on something other than biology if left in X:
+    """True for measurements that don't describe the object's own morphology or intensity. Left in
+    X, they'd bias downstream similarity on something other than biology.
 
-    - position/orientation: the whole Location category (an object's own center and, per channel,
-      its intensity-weighted/max-intensity center -- all absolute pixel coordinates) plus the
-      handful of AreaShape measurements that are themselves a coordinate or an angle in the image
-      frame (Center_X/Y, the bounding-box corners, Orientation).
-    - identity and linkage: Number_Object_Number (the object's own arbitrary label, already carried
-      as obs["label_id"]), Parent_<object> (an arbitrary label *referencing another row*, not a
-      measurement of this one), Children_<object>_Count (already surfaced in obs as count_<child>
-      by join_tables -- kept out of X so it isn't carried twice, inconsistently), and
-      Neighbors_{First,Second}ClosestObjectNumber (another object's label, same problem as Parent).
+    Two categories qualify:
 
-    Two objects with identical biology should land at the same point in feature space regardless of
+    - Position and orientation: the whole Location category (an object's own center and, per
+      channel, its intensity-weighted/max-intensity center, all absolute pixel coordinates) plus
+      the handful of AreaShape measurements that are themselves a coordinate or an angle in the
+      image frame (Center_X/Y, the bounding-box corners, Orientation).
+    - Identity and linkage: Number_Object_Number (the object's own arbitrary label, already carried
+      as obs["label_id"]), Parent_<object> (an arbitrary label referencing another row, not a
+      measurement of this one), Children_<object>_Count (join_tables already surfaces this in obs
+      as count_<child>, so it stays out of X rather than duplicating that value under a second,
+      inconsistent name), and Neighbors_{First,Second}ClosestObjectNumber (another object's label,
+      the same problem as Parent).
+
+    Two objects with identical biology should land at the same point in feature space no matter
     where they were imaged, how the sample was rotated, or what label CellProfiler happened to
-    assign them or their neighbors -- so ExportToAnnData keeps these out of X/var and reports them
-    in obs instead, prefixed per object the same way var_names are (`{object}__{name}`) once
-    objects are joined.
+    assign them or their neighbors. ExportToAnnData keeps these measurements out of X/var and
+    reports them in obs instead, prefixed per object the same way var_names are
+    (`{object}__{name}`) once objects are joined.
     """
     if f.category == "Location":
         return True
