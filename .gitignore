@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.pytest_cache/
+
+# Virtual environments
+.venv
+
+# OS
+.DS_Store
+
+# CellProfiler run outputs (regenerate by re-running the pipeline; not source)
+Testrun_cp2sd_*.csv
+Testrun_cp2sd_*.h5ad

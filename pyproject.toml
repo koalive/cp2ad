@@ -1,0 +1,13 @@
+[project]
+name = "scverse-cp-hackathon-2026"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anndata>=0.11.4",
+    "napari>=0.7.1",
+    "pandas>=2.3.3",
+    "pyqt6>=6.11.0",
+    "scanpy>=1.11.5",
+]
