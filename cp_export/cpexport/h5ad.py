@@ -3,7 +3,8 @@ Follows the anndata on-disk spec: https://anndata.readthedocs.io/en/latest/filef
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
 import h5py
 import numpy
@@ -11,6 +12,27 @@ import numpy
 from .assemble import Table
 
 STR = h5py.string_dtype(encoding="utf-8")
+
+
+@dataclass
+class Frame:
+    """A tabular value destined for uns, written in anndata's on-disk dataframe encoding so it
+    reads back as a pandas DataFrame rather than a nested dict.
+
+    Without this, _write_elem stores a list of row-dicts as {"0": {...}, "1": {...}}, which is
+    technically lossless but useless for anything tabular: you cannot slice it, sort it, or hand it
+    to pandas without rebuilding it by hand. `columns` is ordered, so column order survives the
+    round trip; `index` defaults to the row positions as strings.
+    """
+    columns: Dict[str, List[Any]] = field(default_factory=dict)
+    index: List[str] = field(default_factory=list)
+
+    @classmethod
+    def from_records(cls, records: List[Dict[str, Any]], fieldnames: List[str]) -> "Frame":
+        """Column-orient a list of same-shaped row dicts. `fieldnames` fixes the column order, so
+        an empty record list still produces a frame with the right (empty) columns."""
+        columns = {name: [r[name] for r in records] for name in fieldnames}
+        return cls(columns=columns, index=[str(i) for i in range(len(records))])
 
 
 def _enc(g, etype: str, version: str):
@@ -67,6 +89,8 @@ def _write_elem(g, key: str, value: Any):
     if value is None:
         d = g.create_dataset(key, data="", dtype=STR)  # anndata has no null; "" is the least surprising stand-in
         _enc(d, "string", "0.2.0")
+    elif isinstance(value, Frame):
+        _write_dataframe(g, key, value.index, {k: numpy.asarray(v) for k, v in value.columns.items()})
     elif isinstance(value, dict):
         sub = g.create_group(key)
         _enc(sub, "dict", "0.1.0")

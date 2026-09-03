@@ -9,6 +9,17 @@ source: https://github.com/HartmannLab/pam-vignettes/blob/agents/.github/skills/
 
 Edit text to remove AI patterns and add human voice.
 
+## Scope (local addition, not in the upstream skill)
+
+Apply this to text you're writing or changing right now: new code comments, new docstrings,
+dialog copy, commit messages, a README section you're already editing, your response to the user.
+
+Don't treat "must always apply" as a license to re-read whole files or grep the repository for old
+violations on every turn. That's a full pass, a separate, explicit task with its own cost, not
+something to redo by default each time you touch the codebase. Scope a full pass to files you
+substantially authored, and only when the user asks for one or you're doing it once, deliberately,
+right after adopting this skill. Otherwise, the diff you're producing this turn is the scope.
+
 ## Process
 
 1. Scan for the patterns below.

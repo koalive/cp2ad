@@ -32,6 +32,14 @@ class ObjectInfo:
 
 
 @dataclass
+class ChannelInfo:
+    name: str
+    module_num: int
+    module_name: str
+    source: str  # "file" (NamesAndTypes/LoadData/LoadImages) or "pipeline" (computed, e.g. ImageMath)
+
+
+@dataclass
 class Context:
     channels: List[str]
     objects: Dict[str, ObjectInfo]
@@ -40,6 +48,7 @@ class Context:
     modules: List[dict] = field(default_factory=list)
     metadata_tags: List[str] = field(default_factory=list)
     role_note: Dict[str, object] = field(default_factory=dict)
+    channel_info: Dict[str, ChannelInfo] = field(default_factory=dict)
 
 
 def _settings_dict(module) -> Dict[str, str]:
@@ -225,11 +234,20 @@ def detect_roles(objects: Dict[str, ObjectInfo], modules: List[dict]):
     return roles, note
 
 
-def _channels(pipeline) -> List[str]:
+def _channels(pipeline):
+    """(names in pipeline order, {name: ChannelInfo}). A channel is "file" when some module that
+    loads images (NamesAndTypes/LoadData/LoadImages) provides it, "pipeline" otherwise (e.g. an
+    ImageMath output)."""
     prov = pipeline.get_provider_dictionary("imagegroup")
     loaded = [n for n, lst in prov.items() if any(m.module_name in LOAD_MODULES for m, _ in lst)]
     derived = [n for n in prov if n not in loaded]
-    return loaded + derived
+    names = loaded + derived
+    info = {}
+    for name in names:
+        module, _ = prov[name][-1]
+        info[name] = ChannelInfo(name=name, module_num=module.module_num, module_name=module.module_name,
+                                 source="file" if name in loaded else "pipeline")
+    return names, info
 
 
 def _objects(pipeline) -> Dict[str, ObjectInfo]:
@@ -284,7 +302,7 @@ def _features(pipeline, objects, channels) -> List[Feature]:
 
 
 def build_context(pipeline, roles: Optional[Dict[str, str]] = None) -> Context:
-    channels = _channels(pipeline)
+    channels, channel_info = _channels(pipeline)
     objects = _objects(pipeline)
     modules = []
     for m in pipeline.modules():
@@ -311,7 +329,7 @@ def build_context(pipeline, roles: Optional[Dict[str, str]] = None) -> Context:
     tags = sorted({f.cp_name[len("Metadata_"):] for f in features
                    if f.object == IMAGE and f.cp_name.startswith("Metadata_")})
     return Context(channels=channels, objects=objects, roles=resolved, features=features,
-                   modules=modules, metadata_tags=tags, role_note=note)
+                   modules=modules, metadata_tags=tags, role_note=note, channel_info=channel_info)
 
 
 def file_loaded_objects(ctx: Context) -> List[str]:

@@ -16,12 +16,15 @@ squidpy run on the same masks are interchangeable per compartment.
   `Children_*` references) stay out of `X` and land in `obs` instead. `X`-derived similarity then
   reflects biology, not where a cell happened to sit in the image or which label CellProfiler
   assigned it.
-- Records full pipeline provenance (modules, object roles, channels, image/experiment metadata) in
-  `uns`.
-- Shows exactly where a name comes from before you run anything: "Press button to see where each
-  object and measurement will land" opens a table of every object and measurement, which module
-  produced it, and its exact destination in the export, with an optional checkbox to write that
-  same information as companion CSV files on every run.
+- Records full pipeline provenance in `uns`: modules and their settings, object roles, channels,
+  the pipeline text, and every image-level measurement in `uns["cellprofiler"]["image"]`, one entry
+  per image set. That last one is where the file name, path and URL of each channel end up, so the
+  export keeps track of which raw images it came from even though those are not per-cell values.
+- Shows exactly where a name comes from before you run anything: "See where each measurement will
+  land" opens three tables for the per-cell columns (channels measured, objects, measurements),
+  naming which module produced each entry and a measurement's exact destination, plus a fourth
+  accounting for what the file carries outside those columns. An advanced-features checkbox saves
+  the first three into `uns["cellprofiler_mapping"]` as DataFrames on every run.
 
 See [`cp_export/README.md`](cp_export/README.md) for installation, usage, and the full export
 schema.

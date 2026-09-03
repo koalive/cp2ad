@@ -83,11 +83,16 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
     `Neighbors_{First,Second}ClosestDistance` and `Neighbors_AngleBetweenNeighbors`. Local crowding,
     density, and the alignment between neighboring cells count as biology here, unlike an object's
     own absolute position.
-  - Press **"Press button to see where each object and measurement will land"** on the module
-    itself to see this split applied to your own pipeline, before running it, with the exact
-    resulting name for every object and measurement; check **"Also write the object/measurement
-    tables as CSV?"** to save that same information as `<prefix>_objects.csv` and
-    `<prefix>_measurements.csv` on every run.
+  - Press **"See where each measurement will land"** on the module itself to see this split
+    applied to your own pipeline, before running it. Three tables cover the per-cell columns
+    (channels measured, objects, measurements), each naming the module that produced the entry and,
+    for measurements, the exact resulting name. They list only what becomes a per-cell column, so
+    an absence is informative: a channel loaded but never measured (a raw image only used to build
+    a derived one, say) gets no row. A fourth table, **Also exported, in uns**, accounts for
+    everything else the file carries, so an absence upstream never has to be read as data loss.
+    Turn on **"Show advanced features?"** for **"Also write the mapping tables to .uns?"**, which
+    saves those first three tables into `uns["cellprofiler_mapping"]` on every run as three
+    DataFrames.
 - `obs`: `region`, `label_id`, `ImageNumber`, `Metadata_*`, `n_missing_features`, the extrinsic
   columns above, plus `qc_flag` and `count_<child>` **on the joined file only** (the per-object
   files have neither). `obs_names`: `<Plate>_<Well>_<Site>_<label>` when Metadata Plate/Well/Site
@@ -110,6 +115,16 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
   internal to the exporter and is not exported), channels, objects (with `source`: `pipeline`|
   `file`), roles, role_detection, relationships, all image-level measurements (thresholds, counts,
   QC, timings), experiment measurements and exporter settings.
+- `uns["cellprofiler"]["image"]` deserves calling out, because it is where everything that is not a
+  per-cell measurement goes: one entry per image set, holding `FileName_*`, `PathName_*` and `URL_*`
+  per channel, `Metadata_*`, `Count_*`, `Threshold_*`, `ExecutionTime_*` and the rest. File names and
+  paths are therefore exported, just keyed by image set rather than repeated on every cell. It is
+  column-oriented, so `pd.DataFrame(adata.uns["cellprofiler"]["image"])` gives the table directly.
+  `uns["cellprofiler"]["channels"]` likewise names **every** channel, including ones no measurement
+  reads.
+- `uns["cellprofiler_mapping"]` (only with *Also write the mapping tables to .uns?*): the preview's
+  `channels`, `objects` and `measurements` tables, written in AnnData's dataframe encoding, so each
+  reads back as a `pd.DataFrame` ready to filter and sort.
 
 ## Scaling
 Sized for **per-well or per-site-batch CellProfiler runs**. Nothing is streamed: `run()` is a no-op and the
