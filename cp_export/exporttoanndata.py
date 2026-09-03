@@ -55,6 +55,7 @@ from cpexport.advice import advice as _advice
 from cpexport.assemble import POLICIES, build_object_table, join_tables, provenance
 from cpexport.h5ad import write_h5ad
 from cpexport.introspect import RoleError, build_context
+from cpexport.preview import feature_report, render_html
 
 LOGGER = logging.getLogger(__name__)
 POLICY_CHOICES = tuple(p.capitalize() for p in POLICIES)  # single source of truth: cpexport.assemble.POLICIES
@@ -91,6 +92,40 @@ input. Manual exports exactly the roles you set: a role left as "None" is simply
             doc="""Detect the primary/secondary/tertiary objects from the modules above, write them into the
 three role settings (switching to Manual so later pipeline edits cannot silently change the export), and
 explain every choice. Warnings (missing plate metadata, ambiguous objects, ...) are shown in the same dialog.""")
+        self.preview = DoSomething(
+            "", "Press button to see where each feature will land", self.do_preview,
+            doc="""Opens a table listing every measurement CellProfiler will produce for the objects
+currently configured above (Automatic or Manual) -- one row per feature -- so you can see exactly
+where a name in the exported ``.h5ad`` comes from and where to find it, before running the pipeline.
+
+Each row shows:
+
+-  **Object** and **CellProfiler name** -- the measurement as CellProfiler itself names it (e.g.
+   ``AreaShape_Area``), and **defined in module** -- which module (and module number) produced it.
+-  **Destination** -- where it ends up in the AnnData file:
+
+   -  *X (morphology)*: a real measurement of the object's own shape, intensity or texture. It
+      becomes a column of ``X``/``var`` (named ``<Object>__<name>`` on the joined file), so it
+      contributes to any similarity or clustering computed from ``X``.
+   -  *obs (extrinsic)*: position, orientation, or an identifier/link to another row (an object's
+      own arbitrary number, a ``Parent_``/``Children_`` reference, a neighbor's object number).
+      These describe where or how an object was imaged, or an arbitrary CellProfiler label, not its
+      biology, so they are kept out of ``X`` and land in ``obs`` instead (also
+      ``<Object>__<name>``) -- see the *Why* column for the specific reason.
+   -  *obs (merged)*: a second CellProfiler measurement that happens to carry the exact same value
+      as another one already claimed this name (for example ``AreaShape_Center_X`` and
+      ``Location_Center_X`` are the same coordinate) -- its value lives under the name shown, not a
+      separate column.
+   -  *dropped*: not a numeric column (e.g. a file name or path), so it cannot enter ``X`` at all
+      and carries no information into the AnnData file.
+
+-  **Name in the joined .h5ad** -- the exact column (if *X*) or ``obs`` key (if *obs*) the value
+   will have. A per-object file, if "Also write one file per object?" is enabled, uses this same
+   name *without* the ``<Object>__`` prefix.
+
+Type in the filter box to narrow the table by object, feature name, module, category, destination,
+or exported name. The table reflects the role settings *as they are right now*; change Automatic vs
+Manual or the role objects and press the button again to refresh it.""")
         self.primary_object = LabelSubscriber("Primary objects (e.g. nuclei)", "None")
         self.secondary_object = LabelSubscriber("Secondary objects (e.g. cells)", "None")
         self.tertiary_object = LabelSubscriber("Tertiary objects (e.g. cytoplasm)", "None")
@@ -105,7 +140,7 @@ explain every choice. Warnings (missing plate metadata, ambiguous objects, ...) 
                   self.autoconfig]
         if self.role_mode == ROLE_MANUAL:
             result += [self.primary_object, self.secondary_object, self.tertiary_object]
-        return result + [self.wants_overwrite]
+        return result + [self.preview, self.wants_overwrite]
 
     # ---- auto-configuration button -------------------------------------------------------
     _gui_pipeline = None
@@ -160,6 +195,22 @@ explain every choice. Warnings (missing plate metadata, ambiguous objects, ...) 
             return
         wx.MessageBox(text, caption="ExportToAnnData auto-configuration",
                       style=wx.OK | (wx.ICON_WARNING if warned else wx.ICON_INFORMATION))
+
+    # ---- feature preview button ------------------------------------------------------------
+    def do_preview(self):
+        import wx
+        if self._gui_pipeline is None:
+            wx.MessageBox("The pipeline is not available yet - click another module and then this one "
+                          "again, then retry.", caption="ExportToAnnData", style=wx.OK | wx.ICON_WARNING)
+            return
+        try:
+            ctx = build_context(self._gui_pipeline, roles=self._roles())
+        except RoleError as e:
+            wx.MessageBox("Nothing to preview: %s\n\nAdd an IdentifyPrimaryObjects (or similar) module "
+                          "before this one, or set the roles by hand in Manual mode." % e,
+                          caption="ExportToAnnData feature preview", style=wx.OK | wx.ICON_ERROR)
+            return
+        _show_feature_preview(feature_report(ctx))
 
     # ---- validation / advice -------------------------------------------------------------
     def _roles(self):
@@ -257,3 +308,52 @@ explain every choice. Warnings (missing plate metadata, ambiguous objects, ...) 
 
     def volumetric(self):
         return False
+
+
+def _show_feature_preview(rows):
+    """The "Press button to see where each feature will land" dialog: a filterable, colour-coded
+    table (cpexport.preview.render_html) of every feature the currently-configured objects will
+    produce, showing its CellProfiler origin and its exact destination in the AnnData export.
+
+    wx is imported here, not at module scope, so the module stays importable headless (no wx
+    installed) -- the same reason do_autoconfig/prepare_run import it locally rather than at the
+    top of the file.
+    """
+    import wx
+    import wx.html
+
+    class _FeaturePreviewDialog(wx.Dialog):
+        def __init__(self, rows):
+            super().__init__(None, title="ExportToAnnData -- features and where they land",
+                             size=(1050, 650),
+                             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.CLOSE_BOX)
+            self.rows = rows
+            sizer = wx.BoxSizer(wx.VERTICAL)
+
+            filter_row = wx.BoxSizer(wx.HORIZONTAL)
+            filter_row.Add(wx.StaticText(self, label="Filter (object, feature, module, destination):"),
+                           0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 5)
+            self.filter_ctrl = wx.TextCtrl(self)
+            self.filter_ctrl.Bind(wx.EVT_TEXT, self.on_filter)
+            filter_row.Add(self.filter_ctrl, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 5)
+            sizer.Add(filter_row, 0, wx.EXPAND)
+
+            self.html_window = wx.html.HtmlWindow(self, style=wx.html.HW_SCROLLBAR_AUTO)
+            self.html_window.SetPage(render_html(self.rows))
+            sizer.Add(self.html_window, 1, wx.EXPAND | wx.ALL, 5)
+
+            close_button = wx.Button(self, id=wx.ID_OK, label="Close")
+            close_button.Bind(wx.EVT_BUTTON, lambda evt: self.EndModal(wx.ID_OK))
+            close_button.SetDefault()
+            sizer.Add(close_button, 0, wx.ALIGN_RIGHT | wx.ALL, 8)
+
+            self.SetSizer(sizer)
+
+        def on_filter(self, evt):
+            self.html_window.SetPage(render_html(self.rows, self.filter_ctrl.GetValue()))
+
+    dlg = _FeaturePreviewDialog(rows)
+    try:
+        dlg.ShowModal()
+    finally:
+        dlg.Destroy()
