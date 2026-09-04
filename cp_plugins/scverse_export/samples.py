@@ -1,22 +1,20 @@
 """Identifiers built from an image set's Metadata tags: the sample key naming one field of view,
 and the obs name naming one object in it.
 
-Kept separate from names.py, which is about measurement names, because these name image sets and
-rows rather than features. ExportForSpatialData names its images, label arrays, and coordinate
-systems from the same sample key ExportToAnnData's obs names are built on, so obs_name() composes
-on sample_key() rather than formatting tags a second time. Two conventions that have to agree are
-better as one function called twice.
+Separate from names.py, which is about measurement names: these name image sets and rows.
+ExportForSpatialData names its images, label arrays and coordinate systems from the same key
+ExportToAnnData's obs names use, so obs_name() composes on sample_key() rather than formatting the
+tags again. Two conventions that must agree are better as one function called twice.
 
-Which tags form the key is detected from the pipeline by default, the same way object roles are,
-because pipelines spell these differently: Plate/Well/Site is the classic triple, but Opera and
-Harmony write Row/Column/Field, and plenty of pipelines have only some of them. Detecting beats
-demanding one spelling, and beats the old all-or-nothing behavior that fell back to the image
-number whenever any of Plate, Well and Site was missing, discarding well information the pipeline
-did have.
+The tags are detected from the pipeline by default, the same way object roles are, because
+pipelines spell them differently: Plate/Well/Site is the classic triple, Opera and Harmony write
+Row/Column/Field, and many pipelines have only some. Detecting beats demanding one spelling, and
+beats the old all-or-nothing rule that fell back to the image number whenever any of the three was
+missing, throwing away well information the pipeline had.
 
-Whatever the tags, the resulting key has to identify each image set uniquely, or rows from two
-fields of view collide. That is checked against the real values at run time rather than assumed,
-and the image number is appended when the check fails.
+Whatever the tags, the key must identify each image set uniquely or rows from two fields of view
+collide. That is checked against the real values at run time, and the image number is appended
+when it fails.
 
 Pure numpy, no CellProfiler and no other module in this package, so anything here can import it.
 """

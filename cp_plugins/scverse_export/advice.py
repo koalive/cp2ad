@@ -56,3 +56,37 @@ def advice(ctx: Context) -> List[str]:
     if any(mod.get("name") == "ExportToSpreadsheet" for mod in ctx.modules):
         out.append(SPREADSHEET)
     return out
+
+
+PLACEMENT = "These modules measure after this one: %s. %s"
+
+PLACEMENT_TABLE_ONLY = "Their features may not be exported. Move this module last to include them."
+
+PLACEMENT_WITH_PIXELS = (
+    "Their features may not be exported, and any image or segmentation they change was written "
+    "before they ran. Move this module last to include both.")
+
+
+def placement_advice(module, pipeline, consequence: str = PLACEMENT_TABLE_ONLY) -> List[str]:
+    """Modules after `module` that make measurements.
+
+    Advice, not an error: another exporter or SaveImages after an export module is ordinary. Only a
+    module that declares measurements is flagged, and get_measurement_columns returns nothing by
+    default, so most do not. A module whose override raises is skipped rather than allowed to break
+    validation.
+    """
+    modules = list(pipeline.modules())
+    if module not in modules:
+        return []
+    makers = []
+    for later in modules[modules.index(module) + 1:]:
+        try:
+            columns = later.get_measurement_columns(pipeline)
+        except Exception:
+            continue
+        if columns:
+            makers.append("#%s %s" % (getattr(later, "module_num", "?"),
+                                      getattr(later, "module_name", type(later).__name__)))
+    if not makers:
+        return []
+    return [PLACEMENT % (", ".join(makers), consequence)]

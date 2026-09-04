@@ -1,13 +1,12 @@
 """The table-building step both export modules share.
 
-ExportToAnnData and ExportForSpatialData need the same per-cell table: gather provenance, build one
-table per role object, join them into one row per cell, attach the uns entries. Only what happens
-to the result differs, since one writes a single .h5ad and the other writes one plate folder of
-images, label arrays, and a table.
+Both modules need the same per-cell table: gather provenance, build one table per role object, join
+them into one row per cell, attach the uns entries. Only what happens next differs, since one
+writes a single .h5ad and the other a plate folder of images, label arrays and a table.
 
-Building stops here and writing stays in the modules on purpose. Each module logs under its own
-logger name, which its tests assert on, and the two have different ideas about where files go, so
-a shared writer would have to invent a path protocol that suits neither.
+Writing stays in the modules on purpose. Each logs under its own logger name, which its tests
+assert on, and the two put files in different places, so a shared writer would need a path protocol
+suiting neither.
 """
 from __future__ import annotations
 

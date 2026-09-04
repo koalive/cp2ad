@@ -3,13 +3,12 @@ ExportForSpatialData
 ====================
 
 **ExportForSpatialData** exports the pixels as well as the numbers: the raw images and the
-segmentation label arrays alongside the per-cell table, so the result can be assembled into a real
-SpatialData object rather than a feature matrix on its own. A cell stops being a row of numbers and
+segmentation label arrays alongside the per-cell table. A cell stops being a row of numbers and
 becomes a labelled region in a specific image, which you can overlay, crop, and re-measure.
 
 CellProfiler cannot write a ``.zarr`` store, so this module writes plain HDF5 arrays in a folder
-tree shaped like the store a SpatialData importer will build from it. One folder per plate, because
-one SpatialData object per plate is the target:
+tree shaped like the store a SpatialData importer builds from it. One folder per plate, since one
+SpatialData object per plate is the target:
 
 |
 
@@ -20,15 +19,16 @@ one SpatialData object per plate is the target:
 
 |
 
-The importer opens the table first and reads ``uns["cellprofiler_mapping"]["elements"]`` to find
-and name everything else, so it never has to walk the folder or parse a file name. It is a separate
-piece of work and is not shipped here.
+The importer reads ``uns["cellprofiler_mapping"]["elements"]`` from the table to find and name
+everything else, so it never walks the folder or parses a file name. It is separate work, not
+shipped here.
 
-The per-cell table is exactly what **ExportToAnnData** writes, including the rule that keeps
-position, orientation and identity out of ``X``, plus one added ``obs["region_key"]`` column naming
-the label array each row annotates.
+The per-cell table is what **ExportToAnnData** writes, including the rule keeping position,
+orientation and identity out of ``X``, plus an ``obs["region_key"]`` column naming the label array
+each row annotates.
 
-Place this module **last** in the pipeline.
+Usually goes at the end. Arrays are written at this module's position, so a later module that
+changes an image or a segmentation leaves them stale on disk. That raises a warning.
 
 |
 ============ ============ ===============
@@ -62,6 +62,7 @@ from cellprofiler_core.setting.subscriber import (ImageListSubscriber, LabelList
                                                   LabelSubscriber)
 from cellprofiler_core.setting.text import Directory, Text
 
+from scverse_export.advice import PLACEMENT_WITH_PIXELS, placement_advice
 from scverse_export.advice import advice as _advice
 from scverse_export.assemble import POLICIES, metadata_by_image, metadata_features
 from scverse_export.export import build_export
@@ -80,11 +81,9 @@ POLICY_CHOICES = tuple(p.capitalize() for p in POLICIES)
 ROLE_AUTO, ROLE_MANUAL = "Automatic", "Manual"
 
 NO_PLATE_ADVICE = (
-    "This pipeline defines no Metadata_Plate, so every image set is assumed to come from one "
-    "plate and everything is written to a single folder named '%s'. That is wrong for a run "
-    "covering several plates, and nothing in the metadata can tell. Add a Metadata module "
-    "extracting Plate to split them, which also makes element names unique across plates so two "
-    "exports concatenate without renaming." % UNKNOWN_PLATE)
+    "No Metadata_Plate, so every image set is treated as one plate and written to a single '%s' "
+    "folder. Add a Metadata module extracting Plate to split them, and to keep element names "
+    "unique across plates." % UNKNOWN_PLATE)
 
 
 class ExportForSpatialData(Module):
@@ -103,38 +102,34 @@ class ExportForSpatialData(Module):
         self.directory.dir_choice = DEFAULT_OUTPUT_FOLDER_NAME
         self.prefix = Text(
             "Folder name prefix", "cellprofiler",
-            doc="""One folder ``<prefix>_export`` is written here, holding one subfolder per plate.
-Each plate folder has ``images/``, ``labels/`` and ``tables/``, and is what a SpatialData importer
-turns into one ``.zarr`` store.""")
+            doc="""Writes ``<prefix>_export`` here, with one subfolder per plate. Each plate folder
+holds ``images/``, ``labels/`` and ``tables/``, and becomes one ``.zarr`` store.""")
         self.channels = ImageListSubscriber(
             "Images to export", [],
-            doc="""Leave this empty to export every image the pipeline loaded from a file, which is
-usually what you want.
+            doc="""Prefilled with every image loaded from a file. Narrow it as you like.
 
-Derived images (illumination-corrected, filtered, masked, anything a module computed) are excluded
-by default, because a pipeline can produce many of them and a folder full of intermediates is not
-worth the disk. Select images here to export exactly those instead, which is how you keep a
-derived image, an illumination-corrected channel for instance, in place of or alongside the raw
-one.""")
+Derived images (illumination-corrected, filtered, masked) are left out by default, since a
+pipeline can make many and they cost disk. Select one here to keep it.
+
+Clearing the selection falls back to the same default rather than writing an empty stack.""")
         self.objects = LabelListSubscriber(
             "Segmentations to export", [],
-            doc="""Leave this empty to export a label array for every object the pipeline made.
+            doc="""Prefilled with every object the pipeline made. Narrow it as you like.
 
-This is deliberately more permissive than the per-cell table, which only covers the primary,
-secondary and tertiary objects because joining compartments into one row per cell is what it is
-for. A label array has no such constraint, so a pipeline that segments spots or organelles outside
-that chain still gets them as viewable elements. Such an element has no rows in the table, which is
-a valid outcome: the segmentation is there to look at, it just has no feature vector.
+Wider than the per-cell table, which covers only the primary, secondary and tertiary objects
+because it joins them into one row each. A label array has no such constraint, so spots or
+organelles outside that chain still become viewable elements. They get no table rows, which is
+fine: the segmentation is there to look at.
 
-Select objects here to export exactly those instead. Pixels cannot be recovered after the run
-without re-running the pipeline, so the default errs on the side of keeping them.""")
+Pixels cannot be recovered without re-running the pipeline, so the default keeps them. Clearing
+the selection falls back to it.""")
         self.role_mode = Choice(
             "How to pick primary / secondary / tertiary objects", (ROLE_AUTO, ROLE_MANUAL),
             doc="""Which objects the per-cell table joins into one row. Automatic follows
-IdentifyPrimary/Secondary/TertiaryObjects and FilterObjects. Manual uses exactly the roles you set.
+IdentifyPrimary/Secondary/TertiaryObjects and FilterObjects. Manual uses the roles you set.
 
-This is separate from "Segmentations to export", which decides what gets a label array on disk.
-An object can be exported as a label array without being part of the joined table.""")
+Separate from "Segmentations to export": an object can get a label array without being in the
+table.""")
         self.primary_object = LabelSubscriber("Primary objects (e.g. nuclei)", "None")
         self.secondary_object = LabelSubscriber("Secondary objects (e.g. cells)", "None")
         self.tertiary_object = LabelSubscriber("Tertiary objects (e.g. cytoplasm)", "None")
@@ -142,64 +137,60 @@ An object can be exported as a label array without being part of the joined tabl
             "Show advanced features?", False,
             doc="""Select "Yes" to also show:
 
--  **How to name fields of view**, and the tag list it reveals when set to Manual: which Metadata
-   tags name each image, label array and coordinate system.
--  **Auto-configure from this pipeline**: read both the objects to track and the naming tags off
-   the modules above, fill them in, and pin them.
--  **When an object is not exactly one primary + one secondary + one tertiary**: how to handle a
+-  **How to name fields of view**, and its tag list in Manual mode: which Metadata tags name each
+   image, label array and coordinate system.
+-  **Auto-configure from this pipeline**: read the objects and naming tags off the modules above
+   and pin them.
+-  **When an object is not exactly one primary + one secondary + one tertiary**: what to do with a
    row that doesn't join 1:1:1.
 
-These matter for pinning an export you intend to concatenate with another, and for troubleshooting
-an unusual pipeline, not for a first run.""")
+Useful for pinning an export you mean to concatenate, or for an unusual pipeline. Not needed for a
+first run.""")
         self.sample_key_mode = Choice(
             "How to name fields of view", (ROLE_AUTO, ROLE_MANUAL),
-            doc="""Every image, label array and coordinate system is named after the field of view it
-belongs to, and table rows are named ``<sample key>_<label>``, so this one choice decides all of
-them at once.
+            doc="""One choice names everything: images, label arrays, coordinate systems, and table
+rows as ``<sample key>_<label>``.
 
 **Automatic** reads the key off the pipeline's Metadata tags, taking at most one plate part (Plate,
-Barcode, PlateID), one well part (Well, or Row plus Column together), and one site part (Site,
-Field, FieldIndex, Position). Frame, Series and Channel are never used, because they index a z
-plane, a timepoint or a channel inside one field of view rather than the field itself.
+Barcode, PlateID), one well part (Well, or Row plus Column), and one site part (Site, Field,
+FieldIndex, Position). Frame, Series and Channel are never used: they index a z plane, a timepoint
+or a channel inside one field of view, not the field.
 
-The image number is always part of the key here, unlike in ExportToAnnData. Files are named one
-cycle at a time, possibly in a worker process, while table rows are named at the end in the main
-process, and the two have to agree exactly or a manifest row would point at a file written under
-another name. Including the image number makes the key unique by construction rather than by a
-check that needs every image set at once.
+The image number is always in the key here, unlike ExportToAnnData. Files are named one cycle at a
+time, possibly in a worker process, and table rows at the end in the main process; the two must
+match exactly or a manifest row points at a file written under another name.
 
-**Manual** uses exactly the tags you list, which pins the scheme so it does not change if you run
-the pipeline over a different subset. Worth doing before exporting anything you intend to
-concatenate.""")
+**Manual** uses the tags you list, pinning the scheme so a different subset of the pipeline names
+things the same way. Worth doing before exporting anything you mean to concatenate.""")
         self.sample_key_tags = Text(
             "Metadata tags for field-of-view names", "Plate,Well,Site",
             doc="""*(Used only when naming fields of view Manually)*
 
-Comma-separated Metadata tag names, in the order they should appear in the key. The ``Metadata_``
-prefix is optional, so ``Well,Field`` and ``Metadata_Well,Metadata_Field`` mean the same thing.
-Leave it empty to name fields of view by image number alone.
+Comma-separated Metadata tags, in key order. The ``Metadata_`` prefix is optional, so
+``Well,Field`` and ``Metadata_Well,Metadata_Field`` are the same. Empty names fields of view by
+image number alone.
 
-A tag this pipeline does not have is reported and the key falls back to the image number, rather
-than leaving a blank in the middle of a name.""")
+A tag the pipeline lacks is reported, and the key falls back to the image number rather than
+leaving a blank mid-name.""")
         self.autoconfig = DoSomething(
             "", "Auto-configure from this pipeline", self.do_autoconfig,
-            doc="""Read this pipeline and fill in both of the things the export otherwise decides for
-itself, then explain every choice in one dialog.
+            doc="""Fills in both things the export would otherwise decide for itself, and explains
+each choice in one dialog.
 
 -  The **primary/secondary/tertiary objects**, from IdentifyPrimary/Secondary/TertiaryObjects and
    FilterObjects.
--  The **Metadata tags that name each field of view**, from the tags the pipeline extracts.
+-  The **Metadata tags naming each field of view**, from the tags the pipeline extracts.
 
-Both modes switch to Manual, so a later pipeline edit cannot silently change which objects are
-exported or how elements are named.""")
+Both switch to Manual, so a later pipeline edit cannot change which objects are exported or how
+elements are named.""")
         self.policy = Choice(
             "When an object is not exactly one primary + one secondary + one tertiary",
             POLICY_CHOICES,
             doc="Flag: keep the row and mark obs['qc_flag']. Drop: remove it. Error: abort the run.")
         self.wants_overwrite = Binary(
             "Overwrite existing files without warning?", True,
-            doc="""Images and label arrays are always overwritten as they are written, one cycle at a
-time. This governs the tables, which are checked before the run starts.""")
+            doc="""Governs the tables, checked before the run starts. Images and label arrays are
+always overwritten, since they are written one cycle at a time.""")
 
     def settings(self):
         return [self.directory, self.prefix, self.channels, self.objects, self.role_mode,
@@ -248,9 +239,40 @@ time. This governs the tables, which are checked before the run starts.""")
 
     def on_activated(self, workspace):
         self._gui_pipeline = workspace.pipeline
+        try:
+            self.fill_defaults(workspace.pipeline)
+        except Exception:
+            # Never let a convenience raise out of a GUI hook. on_activated runs every time the
+            # module is opened, so an exception here is not one error, it is one per repaint.
+            LOGGER.warning("ExportForSpatialData: could not prefill the export lists",
+                           exc_info=True)
 
     def on_deactivated(self):
         self._gui_pipeline = None
+
+    def fill_defaults(self, pipeline):
+        """Show the images and segmentations this pipeline offers, rather than two empty boxes.
+
+        The lists cannot be populated in create_settings, which runs before there is a pipeline to
+        read, so they start empty and get filled the first time the module is opened. Only when
+        empty: a selection the user has narrowed is theirs to keep.
+
+        selected_channels and selected_objects still treat an empty list as the default set, so a
+        headless run from a pipeline saved with empty lists exports the same thing the GUI would
+        have shown. This only changes what is on screen, not what a run does.
+
+        Values go in as a ", "-joined string, not as a list. A ListSubscriber reads a list back out
+        of .value but its setter expects the saved string form and splits it, so assigning a list
+        raises AttributeError inside a GUI hook, which is a freeze rather than a message.
+        """
+        try:
+            ctx = build_context(pipeline, roles=self._roles())
+        except RoleError:
+            return                                  # nothing to offer yet; validation reports it
+        if not self.channels.value:
+            self.channels.value = ", ".join(selected_channels(ctx, []))
+        if not self.objects.value:
+            self.objects.value = ", ".join(selected_objects(ctx, []))
 
     def apply_autoconfig(self, pipeline):
         """Detect the objects to track and the naming tags afresh, pin both as Manual, and return
@@ -310,20 +332,20 @@ time. This governs the tables, which are checked before the run starts.""")
         return [] if "Plate" in ctx.metadata_tags else [NO_PLATE_ADVICE]
 
     def validate_module(self, pipeline):
-        if pipeline.modules()[-1] is not self:
-            raise ValidationError("ExportForSpatialData must be the last module; measurements made "
-                                  "after it are not exported.", self.prefix)
         try:
             build_context(pipeline, roles=self._roles())
         except RoleError as e:
             raise ValidationError(str(e), self.role_mode)
+
+    def _placement_advice(self, pipeline):
+        return placement_advice(self, pipeline, PLACEMENT_WITH_PIXELS)
 
     def validate_module_warnings(self, pipeline):
         try:
             ctx = build_context(pipeline, roles=self._roles())
         except RoleError:
             return  # validate_module already reports this as an error
-        messages = _advice(ctx) + self._plate_advice(ctx)
+        messages = _advice(ctx) + self._plate_advice(ctx) + self._placement_advice(pipeline)
         if messages:
             raise ValidationError("\n\n".join(messages), self.prefix)
 
@@ -365,13 +387,18 @@ time. This governs the tables, which are checked before the run starts.""")
         """
         m = workspace.measurements
         image_number = int(m.image_set_number)
+        workspace.display_data.root = self._root()
+        workspace.display_data.written = written = []
+        workspace.display_data.error = ""
         try:
             ctx = build_context(workspace.pipeline, roles=self._roles())
             naming = self._naming(ctx, m)
             md = {tag: _image_value(m, tag, image_number)
                   for tag in metadata_features(ctx, m)}
             key = sample_key(md, image_number, naming)
-            root = os.path.join(self._root(), plate_of(md))
+            plate = plate_of(md)
+            root = os.path.join(self._root(), plate)
+            workspace.display_data.root = root
 
             channels = selected_channels(ctx, self.channels.value)
             stack = numpy.stack([
@@ -382,18 +409,31 @@ time. This governs the tables, which are checked before the run starts.""")
                     "expected one 2D plane per channel, got a stack of shape %s. This module does "
                     "not support 3D or colour images yet." % (stack.shape,))
             write_image(os.path.join(root, image_path(key)), stack)
+            written.append(image_path(key))
 
             for obj in selected_objects(ctx, self.objects.value):
                 labels = workspace.object_set.get_objects(obj).segmented
                 write_labels(os.path.join(root, labels_path(key, obj)), numpy.asarray(labels))
+                written.append(labels_path(key, obj))
         except Exception as exc:
             LOGGER.error("ExportForSpatialData: image set %d was not exported: %s",
                          image_number, exc, exc_info=True)
+            workspace.display_data.error = "%s: %s" % (type(exc).__name__, exc)
             m.add_image_measurement(ERROR_MEASUREMENT, "%s: %s" % (type(exc).__name__, exc))
 
     def display(self, workspace, figure):
+        """What this cycle wrote and where. The useful thing at this point is the paths, not a
+        description of the layout, which belongs in the setting help."""
+        written = getattr(workspace.display_data, "written", None) or []
+        error = getattr(workspace.display_data, "error", "")
+        rows = [["Folder", getattr(workspace.display_data, "root", self._root())]]
+        rows += [["Wrote", path] for path in written]
+        if error:
+            rows.append(["Failed", error])
+        elif not written:
+            rows.append(["Wrote", "nothing for this image set"])
         figure.set_subplots((1, 1))
-        figure.subplot_table(0, 0, [["Output", "one folder per plate, written as the run goes"]])
+        figure.subplot_table(0, 0, rows, col_labels=["", "Path"])
 
     def post_run(self, workspace):
         """Write one table per plate, each carrying the manifest for its own folder."""

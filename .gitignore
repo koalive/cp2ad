@@ -17,5 +17,7 @@ wheels/
 Testrun_cp2sd_*.csv
 Testrun_cp2sd_*.h5ad
 
-# ExportForSpatialData run output (regenerate by re-running the pipeline; not source)
-*_export/
+# ExportForSpatialData run output (regenerate by re-running the pipeline; not source).
+# Root-anchored on purpose: an unanchored *_export/ also matches cp_plugins/scverse_export/ and
+# silently untracks source files added to it.
+/*_export/

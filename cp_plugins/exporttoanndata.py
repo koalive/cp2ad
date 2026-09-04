@@ -19,10 +19,10 @@ and as ``<Object>__<name>`` on the joined file; see ``scverse_export.names.is_ex
 rules, or press "See where each measurement will land" in the module's own settings to inspect them
 for your pipeline directly.
 
-Place this module **last** in the pipeline. It reads the pipeline structure itself: channels,
-objects, which module produced them, and how measurements are named. Nothing has to be
-configured for a standard IdentifyPrimaryObjects -> IdentifySecondaryObjects ->
-IdentifyTertiaryObjects pipeline.
+Usually goes at the end: a module placed after it that makes features may not have them exported,
+which raises a warning. Nothing needs configuring for a standard IdentifyPrimaryObjects ->
+IdentifySecondaryObjects -> IdentifyTertiaryObjects pipeline, since the module reads the pipeline
+itself: channels, objects, which module produced them, and how measurements are named.
 
 |
 ============ ============ ===============
@@ -53,6 +53,7 @@ from cellprofiler_core.setting.do_something import DoSomething
 from cellprofiler_core.setting.subscriber import LabelSubscriber
 from cellprofiler_core.setting.text import Directory, Text
 
+from scverse_export.advice import PLACEMENT_TABLE_ONLY, placement_advice
 from scverse_export.advice import advice as _advice
 from scverse_export.assemble import POLICIES
 from scverse_export.export import build_export
@@ -91,40 +92,36 @@ candidate primary objects and no secondary/tertiary chain it picks the one the m
 input. Manual exports exactly the roles you set: a role left as "None" is simply not exported.""")
         self.sample_key_mode = Choice(
             "How to build row names", (ROLE_AUTO, ROLE_MANUAL),
-            doc="""Every row is named `<sample key>_<label>`, where the sample key identifies the field
-of view the object came from and the label is the integer CellProfiler gave it there.
+            doc="""Rows are named ``<sample key>_<label>``: the field of view, then the integer
+CellProfiler gave the object in it.
 
-**Automatic** reads the sample key off the pipeline's Metadata tags, taking at most one plate part
-(Plate, Barcode, PlateID), one well part (Well, or Row plus Column together), and one site part
-(Site, Field, FieldIndex, Position). A Plate/Well/Site pipeline gets ``P1_A01_1_5``; an Opera or
-Harmony pipeline with Well and Field gets ``A02_03_5``. Frame, Series and Channel are never used,
-because they index a z plane, a timepoint, or a channel inside one field of view rather than the
-field itself.
+**Automatic** reads the key off the pipeline's Metadata tags, taking at most one plate part (Plate,
+Barcode, PlateID), one well part (Well, or Row plus Column), and one site part (Site, Field,
+FieldIndex, Position). Plate/Well/Site gives ``P1_A01_1_5``; Opera's Well and Field give
+``A02_03_5``. Frame, Series and Channel are never used: they index a z plane, a timepoint or a
+channel inside one field of view, not the field.
 
-Whichever tags are used, they have to give every image set a different key, or rows from two
-fields of view would collide. That is checked against the real values during the run, and
-``img<n>`` is appended when it fails, so a key is never ambiguous. With no usable tags at all the
-key is ``img<n>`` alone, which is unique within one run but not across runs.
+The run checks the chosen tags give every image set a different key, and appends ``img<n>`` when
+they do not, so two fields of view never share a row name. With no usable tags the key is
+``img<n>`` alone, unique within a run but not across runs.
 
-**Manual** uses exactly the tags you list below, which makes the scheme stable. Automatic depends
-on what a run contains: if a tag turns out not to separate the image sets, that run appends
-``img<n>`` and the one before it may not have, so the same pipeline over different subsets can
-produce differently shaped names. Naming the tags yourself fixes them, and is worth doing before
-exporting anything you intend to concatenate.
+**Manual** uses the tags you list below, which pins the scheme. Automatic depends on what a run
+contains, so the same pipeline over a different subset can name rows differently. Pin the tags
+before exporting anything you mean to concatenate.
 
-"Auto-configure from this pipeline" fills these in and switches to Manual, which is the quickest
-way to get a stable scheme that matches the pipeline. The resolved scheme is logged at the start
-of the export, recorded in ``uns["cellprofiler"]["sample_naming"]``, and shown at the top of "See
-where each measurement will land".""")
+"Auto-configure from this pipeline" fills these in and switches to Manual. The resolved scheme is
+logged, recorded in ``uns["cellprofiler"]["sample_naming"]``, and shown at the top of "See where
+each measurement will land".""")
         self.sample_key_tags = Text(
             "Metadata tags for row names", "Plate,Well,Site",
             doc="""*(Used only when building row names Manually)*
 
-Comma-separated Metadata tag names, in the order they should appear in the key. The ``Metadata_``
-prefix is optional, so ``Well,Field`` and ``Metadata_Well,Metadata_Field`` mean the same thing.
+Comma-separated Metadata tags, in key order. The ``Metadata_`` prefix is optional, so
+``Well,Field`` and ``Metadata_Well,Metadata_Field`` are the same. Empty names rows by image number
+alone.
 
-A tag this pipeline does not have is reported and the key falls back to ``img<n>``, rather than
-producing a key with a blank in it. Leave this empty to name rows by image number alone.""")
+A tag the pipeline lacks is reported, and the key falls back to ``img<n>`` rather than leaving a
+blank mid-name.""")
         self.primary_object = LabelSubscriber("Primary objects (e.g. nuclei)", "None")
         self.secondary_object = LabelSubscriber("Secondary objects (e.g. cells)", "None")
         self.tertiary_object = LabelSubscriber("Tertiary objects (e.g. cytoplasm)", "None")
@@ -186,10 +183,9 @@ inside the ``.h5ad`` on every run, not just when you press this button.""")
             "Show advanced features?", False,
             doc="""Select "Yes" to also show:
 
--  **How to build row names**, and the tag list it reveals when set to Manual: which Metadata tags
-   name each row.
--  **Auto-configure from this pipeline**: read both the objects to track and the row-name tags off
-   the modules above, fill them in, and pin them.
+-  **How to build row names**, and its tag list in Manual mode: which Metadata tags name each row.
+-  **Auto-configure from this pipeline**: read the objects and row-name tags off the modules above
+   and pin them.
 -  **When an object is not exactly one primary + one secondary + one tertiary**: how to handle a
    row that doesn't join 1:1:1.
 -  **Also write the mapping tables to .uns?**: save the channel/object/measurement tables "See
@@ -199,20 +195,18 @@ These matter for troubleshooting an unusual pipeline, for pinning an export you 
 concatenate, or for automating around the export, not for a first run.""")
         self.autoconfig = DoSomething(
             "", "Auto-configure from this pipeline", self.do_autoconfig,
-            doc="""Read this pipeline and fill in both of the things the export otherwise decides for
-itself, then explain every choice in one dialog.
+            doc="""Fills in both things the export would otherwise decide for itself, and explains
+each choice in one dialog.
 
 -  The **primary/secondary/tertiary objects**, from IdentifyPrimary/Secondary/TertiaryObjects and
    FilterObjects.
--  The **Metadata tags that name each row**, from the tags the pipeline extracts.
+-  The **Metadata tags naming each row**, from the tags the pipeline extracts.
 
-Both modes switch to Manual, so a later pipeline edit cannot silently change which objects are
-exported or how rows are named. That is the point of the button: it turns whatever the pipeline
-currently implies into settings you can see and keep.
+Both switch to Manual, turning what the pipeline currently implies into settings you can see and
+keep, so a later edit cannot change them.
 
-Warnings (missing plate metadata, ambiguous objects, and so on) appear in the same dialog. Whether
-the chosen tags give every image set a different key can only be checked against real values, so
-the run still appends ``img<n>`` if they turn out not to.""")
+Warnings appear in the same dialog. Uniqueness can only be checked against real values, so the run
+still appends ``img<n>`` if the pinned tags turn out not to separate the image sets.""")
         self.policy = Choice(
             "When an object is not exactly one primary + one secondary + one tertiary", POLICY_CHOICES,
             doc="Flag: keep the row and mark obs['qc_flag']. Drop: remove it. Error: abort the run.")
@@ -358,20 +352,20 @@ columns, module settings). The "Also exported, in uns" table in the preview list
         return roles or None
 
     def validate_module(self, pipeline):
-        if pipeline.modules()[-1] is not self:
-            raise ValidationError("ExportToAnnData must be the last module; measurements made after it "
-                                  "are not exported.", self.prefix)
         try:
             build_context(pipeline, roles=self._roles())
         except RoleError as e:
             raise ValidationError(str(e), self.role_mode)
+
+    def _placement_advice(self, pipeline):
+        return placement_advice(self, pipeline, PLACEMENT_TABLE_ONLY)
 
     def validate_module_warnings(self, pipeline):
         try:
             ctx = build_context(pipeline, roles=self._roles())
         except RoleError:
             return  # a hard failure; validate_module already reports it as a ValidationError
-        messages = _advice(ctx)
+        messages = _advice(ctx) + self._placement_advice(pipeline)
         if messages:
             raise ValidationError("\n\n".join(messages), self.prefix)
 
@@ -404,8 +398,15 @@ columns, module settings). The "Also exported, in uns" table in the preview list
         pass  # everything happens in post_run, like ExportToSpreadsheet
 
     def display(self, workspace, figure):
+        """Where the output will be. Computed from the settings rather than a context, since the
+        joined file's name does not depend on the pipeline."""
+        base = self.directory.get_absolute_path()
+        rows = [["Table", os.path.join(base, f"{self.prefix.value}.h5ad")]]
+        if self.wants_per_object.value:
+            rows.append(["Per object", os.path.join(base, f"{self.prefix.value}_<Object>.h5ad")])
+        rows.append(["Written", "at the end of the run, once every image set is measured"])
         figure.set_subplots((1, 1))
-        figure.subplot_table(0, 0, [["Output", "written in post_run"]])
+        figure.subplot_table(0, 0, rows, col_labels=["", "Path"])
 
     def post_run(self, workspace):
         if workspace.pipeline.test_mode:

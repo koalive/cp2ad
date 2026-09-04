@@ -7,7 +7,9 @@ squidpy run on the same masks are interchangeable per compartment. Design: `../d
 ## Use
 1. Point CellProfiler at this folder: `Preferences -> CellProfiler plugins directory`, or headless
    `--plugins-directory=/path/to/cp_plugins`.
-2. Add **ExportToAnnData** as the last module. Defaults work for IdentifyPrimary -> Secondary -> Tertiary pipelines.
+2. Add **ExportToAnnData**, usually at the end. Defaults work for IdentifyPrimary -> Secondary ->
+   Tertiary pipelines. A module after it that makes features may not have them exported, which
+   raises a warning rather than an error: another exporter or SaveImages after it is normal.
 3. Output: `<prefix>.h5ad` (joined, `var_names = <Object>__<feature>`), optionally `<prefix>_<Object>.h5ad`.
 
 ## Object roles
@@ -129,40 +131,33 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
 
 ## Row names
 
-Each row is named `<sample key>_<label>`: the sample key identifies the field of view, the label is
-the integer CellProfiler gave the object inside it. *How to build row names* is
-an advanced setting.
+Each row is named `<sample key>_<label>`: the field of view, then the integer CellProfiler gave the
+object in it. *How to build row names* is an advanced setting.
 
 **Automatic** (default) reads the key off the pipeline's Metadata tags, taking at most one plate
-part (`Plate`, `Barcode`, `PlateID`), one well part (`Well`, or `Row` plus `Column` together), and
-one site part (`Site`, `Field`, `FieldIndex`, `Position`). A Plate/Well/Site pipeline gets
-`P1_A01_1_5`; an Opera or Harmony pipeline with `Well` and `Field` gets `A02_03_5`. `Frame`,
-`Series` and `Channel` are never used, because they index a z plane, a timepoint or a channel
-inside one field of view rather than the field itself.
+part (`Plate`, `Barcode`, `PlateID`), one well part (`Well`, or `Row` plus `Column`), and one site
+part (`Site`, `Field`, `FieldIndex`, `Position`). Plate/Well/Site gives `P1_A01_1_5`; Opera's `Well`
+and `Field` give `A02_03_5`. `Frame`, `Series` and `Channel` are never used: they index a z plane, a
+timepoint or a channel inside one field of view, not the field.
 
-Whichever tags are used, the run checks against the real values that they give every image set a
-different key, and appends `img<n>` when they do not, so two fields of view can never share a row
-name. With no usable tags the key is `img<n>` alone, unique within one run but not across runs.
+The run checks the chosen tags give every image set a different key, and appends `img<n>` when they
+do not, so two fields of view never share a row name. With no usable tags the key is `img<n>`
+alone, unique within a run but not across runs.
 
-**Manual** uses exactly the comma-separated tags you list, where the `Metadata_` prefix is
-optional (`Well,Field` and `Metadata_Well,Metadata_Field` are the same); an empty list names rows
-by image number. A tag the pipeline lacks is reported and the key falls back to `img<n>` rather
-than leaving a blank in the middle of a name.
+**Manual** uses the comma-separated tags you list, where the `Metadata_` prefix is optional and an
+empty list means image number alone. A tag the pipeline lacks is reported, and the key falls back
+to `img<n>` rather than leaving a blank mid-name.
 
-Manual exists because Automatic depends on what a run contains. If a tag turns out not to separate
-the image sets, that run appends `img<n>` and a run over a different subset may not, so the same
-pipeline can produce differently shaped names. Pin the tags before exporting anything you intend
-to concatenate.
+Manual exists because Automatic depends on what a run contains: the same pipeline over a different
+subset can name rows differently. Pin the tags before exporting anything you mean to concatenate.
 
-**"Auto-configure from this pipeline"** (also advanced) fills in both the object roles and the
-row-name tags from the current pipeline and switches both to Manual, which is the quickest way to
-a stable scheme that matches what the pipeline does. It cannot check uniqueness, since that needs
+**"Auto-configure from this pipeline"** (also advanced) fills in the object roles and the row-name
+tags from the current pipeline and switches both to Manual. It cannot check uniqueness, which needs
 real values, so the run still appends `img<n>` if the pinned tags turn out not to separate the
 image sets.
 
-The resolved scheme is logged at the start of the export, recorded in
-`uns["cellprofiler"]["sample_naming"]` (tags, readable parts, mode, and the reason), and shown at
-the top of "See where each measurement will land".
+The resolved scheme is logged, recorded in `uns["cellprofiler"]["sample_naming"]`, and shown at the
+top of "See where each measurement will land".
 
 ## Scaling
 Sized for **per-well or per-site-batch CellProfiler runs**. Nothing is streamed: `run()` is a no-op and the
