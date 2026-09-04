@@ -1,4 +1,4 @@
-# ExportToAnnData — CellProfiler plugin
+# ExportToAnnData, a CellProfiler plugin
 
 Writes one `.h5ad` per run with one row per cell. Feature names, `obs`/`uns` keys and layout match
 `squidpy.experimental.im.calculate_image_features` (cp_measure naming), so a CellProfiler run and a
@@ -95,8 +95,9 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
     DataFrames.
 - `obs`: `region`, `label_id`, `ImageNumber`, `Metadata_*`, `n_missing_features`, the extrinsic
   columns above, plus `qc_flag` and `count_<child>` **on the joined file only** (the per-object
-  files have neither). `obs_names`: `<Plate>_<Well>_<Site>_<label>` when Metadata Plate/Well/Site
-  exist, else `img<n>_<label>`.
+  files have neither).
+- `obs_names`: `<sample key>_<label>`, where the sample key identifies the field of view and the
+  label is the integer CellProfiler gave the object there. See "Row names" below.
 - `obsm["spatial"]`: cell centers in site pixel coordinates, the base object's `Location_Center_X/Y`.
   This duplicates `obs["Center_X"/"Center_Y"]` / `obs["<base object>__Center_X"/"Center_Y"]` on
   purpose: `obsm["spatial"]` is for spatial-analysis tooling that expects it there, e.g. squidpy.
@@ -126,6 +127,43 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
   `channels`, `objects` and `measurements` tables, written in AnnData's dataframe encoding, so each
   reads back as a `pd.DataFrame` ready to filter and sort.
 
+## Row names
+
+Each row is named `<sample key>_<label>`: the sample key identifies the field of view, the label is
+the integer CellProfiler gave the object inside it. *How to build row names* is
+an advanced setting.
+
+**Automatic** (default) reads the key off the pipeline's Metadata tags, taking at most one plate
+part (`Plate`, `Barcode`, `PlateID`), one well part (`Well`, or `Row` plus `Column` together), and
+one site part (`Site`, `Field`, `FieldIndex`, `Position`). A Plate/Well/Site pipeline gets
+`P1_A01_1_5`; an Opera or Harmony pipeline with `Well` and `Field` gets `A02_03_5`. `Frame`,
+`Series` and `Channel` are never used, because they index a z plane, a timepoint or a channel
+inside one field of view rather than the field itself.
+
+Whichever tags are used, the run checks against the real values that they give every image set a
+different key, and appends `img<n>` when they do not, so two fields of view can never share a row
+name. With no usable tags the key is `img<n>` alone, unique within one run but not across runs.
+
+**Manual** uses exactly the comma-separated tags you list, where the `Metadata_` prefix is
+optional (`Well,Field` and `Metadata_Well,Metadata_Field` are the same); an empty list names rows
+by image number. A tag the pipeline lacks is reported and the key falls back to `img<n>` rather
+than leaving a blank in the middle of a name.
+
+Manual exists because Automatic depends on what a run contains. If a tag turns out not to separate
+the image sets, that run appends `img<n>` and a run over a different subset may not, so the same
+pipeline can produce differently shaped names. Pin the tags before exporting anything you intend
+to concatenate.
+
+**"Auto-configure from this pipeline"** (also advanced) fills in both the object roles and the
+row-name tags from the current pipeline and switches both to Manual, which is the quickest way to
+a stable scheme that matches what the pipeline does. It cannot check uniqueness, since that needs
+real values, so the run still appends `img<n>` if the pinned tags turn out not to separate the
+image sets.
+
+The resolved scheme is logged at the start of the export, recorded in
+`uns["cellprofiler"]["sample_naming"]` (tags, readable parts, mode, and the reason), and shown at
+the top of "See where each measurement will land".
+
 ## Scaling
 Sized for **per-well or per-site-batch CellProfiler runs**. Nothing is streamed: `run()` is a no-op and the
 whole object is assembled in `post_run`, so every cell of every image set in one CellProfiler run is held in
@@ -134,8 +172,10 @@ feature's float64 series across every image set, writes it into `X`'s float32 ro
 the next feature -- so peak memory is `X` (float32, the whole object) plus one feature's float64 series,
 not every feature's float64 copy at once. A whole plate in a single run -- of the order of 5M cells x 8k
 features, ~160 GB as float32 for `X` alone -- will still exhaust memory. Split the plate into per-well or
-per-site runs and concatenate the `.h5ad` files afterwards; `obs_names` stay unique across runs as long as
-Metadata Plate/Well/Site are set. The log line before each write reports the shape and size.
+per-site runs and concatenate the `.h5ad` files afterwards. `obs_names` stay unique across runs when the
+sample key includes a plate and a site tag, since those identify a field of view independently of the run
+it was processed in; a key that falls back to `img<n>` does not, because image numbers restart at 1 every
+run. The log line before each write reports the shape and size.
 
 ## Tests
 ```sh

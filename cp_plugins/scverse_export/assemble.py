@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy
 
 from .introspect import Context, IMAGE, file_loaded_objects
 from .names import is_extrinsic, to_cpm_names
-from .samples import has_sample_tags, obs_name
+from .samples import SampleNaming, obs_name, resolve_sample_naming
 
 LOGGER = logging.getLogger(__name__)
 
@@ -134,18 +134,39 @@ def _make_var(rows, obj: str) -> Dict[str, numpy.ndarray]:
     }
 
 
-def build_object_table(ctx: Context, m, obj: str) -> Table:
+def metadata_features(ctx: Context, m) -> List[str]:
+    """Every Metadata_* Image column this run has. ctx.metadata_tags only lists the *declared*
+    ones; CellProfiler also adds Metadata_* Image measurements at runtime (Metadata_Frame,
+    Metadata_Series, LoadData/Metadata module tags), so both sources are unioned and obs columns
+    and sample keys see runtime-only tags too."""
+    return sorted(set(f"Metadata_{t}" for t in ctx.metadata_tags)
+                  | set(f for f in m.get_feature_names(IMAGE) if f.startswith("Metadata_")))
+
+
+def metadata_by_image(m, md_feats: List[str], image_numbers) -> Dict[int, Dict[str, Any]]:
+    """{image number: {tag: value}} for the given tags, which is what deciding whether those tags
+    identify the image sets needs before any row is built."""
+    return {int(n): {tag: _image_value(m, tag, n) for tag in md_feats} for n in image_numbers}
+
+
+def resolve_naming(ctx: Context, m, requested: Optional[Sequence[str]] = None) -> SampleNaming:
+    """The sample-key naming for this run, detected or as requested, verified against the real
+    metadata values. Resolved once per export and passed to build_object_table, so every object's
+    table names its rows the same way."""
+    md_feats = metadata_features(ctx, m)
+    image_numbers = [int(n) for n in m.get_image_numbers()]
+    return resolve_sample_naming(md_feats, metadata_by_image(m, md_feats, image_numbers), requested)
+
+
+def build_object_table(ctx: Context, m, obj: str, naming: Optional[SampleNaming] = None) -> Table:
     rows = _var_columns(ctx, obj)
     extrinsic_rows = _extrinsic_columns(ctx, obj)
     var_names = [r[0] for r in rows]
     extrinsic_names = [r[0] for r in extrinsic_rows]
     image_numbers = [int(n) for n in m.get_image_numbers()]
-    # ctx.metadata_tags only lists *declared* Metadata_* columns; CellProfiler also adds
-    # Metadata_* Image measurements at runtime (Metadata_Frame, Metadata_Series, LoadData/Metadata
-    # module tags). Union both sources so obs_names and obs columns see runtime-only tags too.
-    md_feats = sorted(set(f"Metadata_{t}" for t in ctx.metadata_tags)
-                       | set(f for f in m.get_feature_names(IMAGE) if f.startswith("Metadata_")))
-    tags_ok = has_sample_tags(md_feats)
+    md_feats = metadata_features(ctx, m)
+    if naming is None:
+        naming = resolve_naming(ctx, m)
 
     wanted = list(dict.fromkeys([f.cp_name for _, _, f in rows] + [f.cp_name for _, _, f in extrinsic_rows] +
                                  ["Location_Center_X", "Location_Center_Y"]))
@@ -222,7 +243,7 @@ def build_object_table(ctx: Context, m, obj: str) -> Table:
         for key in md_feats:
             md_cols[key].extend([md[key]] * count)
         labels = numpy.arange(1, count + 1)
-        obs_names.extend(obs_name(md, n, int(l), tags_ok) for l in labels)
+        obs_names.extend(obs_name(md, n, int(l), naming) for l in labels)
         label_id.append(labels)
         imgnum.append(numpy.full(count, n, dtype=numpy.int32))
 
@@ -421,7 +442,8 @@ def join_tables(ctx: Context, m, tables: Dict[str, Table], policy: str = "flag")
                  obs=obs, var=var_arrays, obsm={"spatial": base.obsm["spatial"][keep]}, uns=uns)
 
 
-def provenance(ctx: Context, m, exporter_settings: Dict[str, Any]) -> Dict[str, Any]:
+def provenance(ctx: Context, m, exporter_settings: Dict[str, Any],
+               naming: Optional[SampleNaming] = None) -> Dict[str, Any]:
     image_numbers = [int(x) for x in m.get_image_numbers()]
     try:
         runtime_image_feats = set(m.get_feature_names(IMAGE))
@@ -472,6 +494,12 @@ def provenance(ctx: Context, m, exporter_settings: Dict[str, Any]) -> Dict[str, 
                     for k, v in ctx.objects.items()},
         "roles": dict(ctx.roles),
         "role_detection": dict(ctx.role_note),
+        # How obs names were built, so a reader can tell what a row name means without guessing,
+        # and can see when the image number had to stand in for missing metadata.
+        "sample_naming": ({"tags": list(naming.tags), "parts": list(naming.parts),
+                           "with_image_number": bool(naming.with_image_number),
+                           "mode": naming.mode, "note": naming.note}
+                          if naming is not None else {}),
         "relationships": relationships,
         "image": image,
         "experiment": experiment,

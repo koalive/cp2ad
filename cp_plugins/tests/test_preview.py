@@ -171,3 +171,28 @@ def test_mapping_to_uns_round_trips_as_dataframes(fake_pipeline, tmp_path):
     assert measurements["destination"].isin({DEST_X, DEST_OBS, DEST_MERGED}).all()
     # the point of a DataFrame: this is a one-liner rather than a rebuild
     assert len(measurements[measurements.destination == DEST_X]) >= 1
+
+
+def test_row_name_preview_describes_the_detected_scheme(fake_pipeline):
+    from scverse_export.preview import row_name_preview
+    ctx = build_context(fake_pipeline)
+    text = row_name_preview(ctx)
+    assert "Row names:" in text
+    assert "&lt;label&gt;" in text
+
+
+def test_row_name_preview_without_usable_tags():
+    from scverse_export.introspect import Context
+    from scverse_export.preview import row_name_preview
+    ctx = Context(channels=[], objects={}, roles={}, features=[], metadata_tags=["Frame", "Series"])
+    text = row_name_preview(ctx)
+    assert "img&lt;n&gt;_&lt;label&gt;" in text
+    assert "Add a Metadata module" in text
+
+
+def test_row_name_preview_reports_a_manually_named_tag_the_pipeline_lacks():
+    from scverse_export.introspect import Context
+    from scverse_export.preview import row_name_preview
+    ctx = Context(channels=[], objects={}, roles={}, features=[], metadata_tags=["Well"])
+    text = row_name_preview(ctx, requested=("Metadata_Plate", "Metadata_Well"))
+    assert "has no Plate" in text

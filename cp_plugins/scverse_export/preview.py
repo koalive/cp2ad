@@ -19,12 +19,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
 from html import escape
-from typing import Dict, List
+from typing import Dict, List, Optional, Sequence
 
 from .assemble import _is_numeric
 from .h5ad import Frame
 from .introspect import IMAGE, Context, file_loaded_objects
 from .names import is_extrinsic, to_cpm_names
+from .samples import PREFIX, detect_sample_tags
 
 DEST_X, DEST_OBS, DEST_MERGED = "X", "obs", "merged"
 
@@ -380,12 +381,45 @@ def render_uns_table(rows: List[UnsReportRow], filter_text: str = "") -> str:
     return "".join(parts)
 
 
+def row_name_preview(ctx: Context, requested: Optional[Sequence[str]] = None) -> str:
+    """One line describing how rows will be named, for the top of the preview.
+
+    The GUI has no measurements yet, so this shows the tags that will be used and an example, and
+    says plainly that whether they separate the image sets is only checkable during the run.
+    """
+    md_feats = [PREFIX + tag for tag in ctx.metadata_tags]
+    if requested is not None:
+        tags = tuple(requested)
+        missing = [t[len(PREFIX):] for t in tags if t not in md_feats]
+        if missing:
+            return ("Row names: <b>img&lt;n&gt;_&lt;label&gt;</b>, because this pipeline has no "
+                    + escape(", ".join(missing)) +
+                    ". Row names carry no plate or well information. Add a Metadata module "
+                    "extracting those tags, or list tags the pipeline does have.")
+        source = "set manually"
+    else:
+        tags, _ = detect_sample_tags(md_feats)
+        source = "detected from this pipeline"
+
+    if not tags:
+        return ("Row names: <b>img&lt;n&gt;_&lt;label&gt;</b>, because this pipeline has no Plate, "
+                "Well, Row/Column or Site tag. That is unique within one run but not across runs. "
+                "Add a Metadata module extracting Plate, Well and Site to get readable names.")
+    parts = "_".join(f"&lt;{escape(t[len(PREFIX):])}&gt;" for t in tags)
+    return (f"Row names: <b>{parts}_&lt;label&gt;</b> ({source}). "
+            "If those tags turn out not to tell every image set apart, the run appends "
+            "<b>img&lt;n&gt;</b> so no two fields of view collide.")
+
+
 def render_report_html(channel_rows: List[ChannelReportRow], object_rows: List[ObjectReportRow],
                        measurement_rows: List[MeasurementReportRow],
-                       uns_rows: List[UnsReportRow] = (), filter_text: str = "") -> str:
-    """The full preview page: the three per-cell tables (channels, objects, measurements), then
-    what else the export carries in uns. One filter box covers all four."""
-    body = (render_channel_table(channel_rows, filter_text) + render_object_table(object_rows, filter_text) +
-           render_measurement_table(measurement_rows, filter_text) +
-           render_uns_table(list(uns_rows), filter_text))
+                       uns_rows: List[UnsReportRow] = (), filter_text: str = "",
+                       row_names: str = "") -> str:
+    """The full preview page: how rows are named, the three per-cell tables (channels, objects,
+    measurements), then what else the export carries in uns. One filter box covers all four
+    tables; the row-name line is not filtered, since it describes every row."""
+    body = f"<p>{row_names}</p>" if row_names else ""
+    body += (render_channel_table(channel_rows, filter_text) + render_object_table(object_rows, filter_text) +
+             render_measurement_table(measurement_rows, filter_text) +
+             render_uns_table(list(uns_rows), filter_text))
     return f'<html><body><font size="{_BODY_FONT_SIZE}">{body}</font></body></html>'

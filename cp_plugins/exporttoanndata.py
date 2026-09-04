@@ -54,11 +54,13 @@ from cellprofiler_core.setting.subscriber import LabelSubscriber
 from cellprofiler_core.setting.text import Directory, Text
 
 from scverse_export.advice import advice as _advice
-from scverse_export.assemble import POLICIES, build_object_table, join_tables, provenance
+from scverse_export.assemble import POLICIES
+from scverse_export.export import build_export
 from scverse_export.h5ad import write_h5ad
 from scverse_export.introspect import RoleError, build_context
-from scverse_export.preview import (channel_report, mapping_to_uns, measurement_report, object_report,
-                              render_report_html, uns_report)
+from scverse_export.preview import (channel_report, measurement_report, object_report,
+                                    render_report_html, row_name_preview, uns_report)
+from scverse_export.samples import PREFIX as TAG_PREFIX, detect_sample_tags, parse_tags, qualify
 
 LOGGER = logging.getLogger(__name__)
 POLICY_CHOICES = tuple(p.capitalize() for p in POLICIES)  # single source of truth: scverse_export.assemble.POLICIES
@@ -68,7 +70,7 @@ ROLE_AUTO, ROLE_MANUAL = "Automatic", "Manual"
 class ExportToAnnData(Module):
     module_name = "ExportToAnnData"
     category = ["File Processing", "Data Tools"]
-    variable_revision_number = 3
+    variable_revision_number = 4
 
     def create_settings(self):
         self.directory = Directory(
@@ -87,6 +89,42 @@ class ExportToAnnData(Module):
             doc="""Automatic follows IdentifyPrimary/Secondary/TertiaryObjects and FilterObjects; with several
 candidate primary objects and no secondary/tertiary chain it picks the one the most other modules use as an
 input. Manual exports exactly the roles you set: a role left as "None" is simply not exported.""")
+        self.sample_key_mode = Choice(
+            "How to build row names", (ROLE_AUTO, ROLE_MANUAL),
+            doc="""Every row is named `<sample key>_<label>`, where the sample key identifies the field
+of view the object came from and the label is the integer CellProfiler gave it there.
+
+**Automatic** reads the sample key off the pipeline's Metadata tags, taking at most one plate part
+(Plate, Barcode, PlateID), one well part (Well, or Row plus Column together), and one site part
+(Site, Field, FieldIndex, Position). A Plate/Well/Site pipeline gets ``P1_A01_1_5``; an Opera or
+Harmony pipeline with Well and Field gets ``A02_03_5``. Frame, Series and Channel are never used,
+because they index a z plane, a timepoint, or a channel inside one field of view rather than the
+field itself.
+
+Whichever tags are used, they have to give every image set a different key, or rows from two
+fields of view would collide. That is checked against the real values during the run, and
+``img<n>`` is appended when it fails, so a key is never ambiguous. With no usable tags at all the
+key is ``img<n>`` alone, which is unique within one run but not across runs.
+
+**Manual** uses exactly the tags you list below, which makes the scheme stable. Automatic depends
+on what a run contains: if a tag turns out not to separate the image sets, that run appends
+``img<n>`` and the one before it may not have, so the same pipeline over different subsets can
+produce differently shaped names. Naming the tags yourself fixes them, and is worth doing before
+exporting anything you intend to concatenate.
+
+"Auto-configure from this pipeline" fills these in and switches to Manual, which is the quickest
+way to get a stable scheme that matches the pipeline. The resolved scheme is logged at the start
+of the export, recorded in ``uns["cellprofiler"]["sample_naming"]``, and shown at the top of "See
+where each measurement will land".""")
+        self.sample_key_tags = Text(
+            "Metadata tags for row names", "Plate,Well,Site",
+            doc="""*(Used only when building row names Manually)*
+
+Comma-separated Metadata tag names, in the order they should appear in the key. The ``Metadata_``
+prefix is optional, so ``Well,Field`` and ``Metadata_Well,Metadata_Field`` mean the same thing.
+
+A tag this pipeline does not have is reported and the key falls back to ``img<n>``, rather than
+producing a key with a blank in it. Leave this empty to name rows by image number alone.""")
         self.primary_object = LabelSubscriber("Primary objects (e.g. nuclei)", "None")
         self.secondary_object = LabelSubscriber("Secondary objects (e.g. cells)", "None")
         self.tertiary_object = LabelSubscriber("Tertiary objects (e.g. cytoplasm)", "None")
@@ -148,20 +186,33 @@ inside the ``.h5ad`` on every run, not just when you press this button.""")
             "Show advanced features?", False,
             doc="""Select "Yes" to also show:
 
--  **Auto-configure from this pipeline**: detect the primary/secondary/tertiary objects from the
-   modules above and fill in the role settings.
+-  **How to build row names**, and the tag list it reveals when set to Manual: which Metadata tags
+   name each row.
+-  **Auto-configure from this pipeline**: read both the objects to track and the row-name tags off
+   the modules above, fill them in, and pin them.
 -  **When an object is not exactly one primary + one secondary + one tertiary**: how to handle a
    row that doesn't join 1:1:1.
 -  **Also write the mapping tables to .uns?**: save the channel/object/measurement tables "See
    where each measurement will land" shows into ``uns["cellprofiler_mapping"]``.
 
-These matter for troubleshooting an unusual pipeline or automating around the export, not for a
-first run.""")
+These matter for troubleshooting an unusual pipeline, for pinning an export you intend to
+concatenate, or for automating around the export, not for a first run.""")
         self.autoconfig = DoSomething(
             "", "Auto-configure from this pipeline", self.do_autoconfig,
-            doc="""Detect the primary/secondary/tertiary objects from the modules above, write them into the
-three role settings (switching to Manual so later pipeline edits cannot silently change the export), and
-explain every choice. Warnings (missing plate metadata, ambiguous objects, ...) are shown in the same dialog.""")
+            doc="""Read this pipeline and fill in both of the things the export otherwise decides for
+itself, then explain every choice in one dialog.
+
+-  The **primary/secondary/tertiary objects**, from IdentifyPrimary/Secondary/TertiaryObjects and
+   FilterObjects.
+-  The **Metadata tags that name each row**, from the tags the pipeline extracts.
+
+Both modes switch to Manual, so a later pipeline edit cannot silently change which objects are
+exported or how rows are named. That is the point of the button: it turns whatever the pipeline
+currently implies into settings you can see and keep.
+
+Warnings (missing plate metadata, ambiguous objects, and so on) appear in the same dialog. Whether
+the chosen tags give every image set a different key can only be checked against real values, so
+the run still appends ``img<n>`` if they turn out not to.""")
         self.policy = Choice(
             "When an object is not exactly one primary + one secondary + one tertiary", POLICY_CHOICES,
             doc="Flag: keep the row and mark obs['qc_flag']. Drop: remove it. Error: abort the run.")
@@ -182,7 +233,8 @@ columns, module settings). The "Also exported, in uns" table in the preview list
     def settings(self):
         return [self.directory, self.prefix, self.wants_per_object, self.policy, self.role_mode,
                 self.primary_object, self.secondary_object, self.tertiary_object,
-                self.wants_mapping_uns, self.wants_advanced, self.wants_overwrite]
+                self.wants_mapping_uns, self.wants_advanced, self.wants_overwrite,
+                self.sample_key_mode, self.sample_key_tags]
 
     def visible_settings(self):
         result = [self.directory, self.prefix, self.wants_per_object, self.role_mode]
@@ -190,8 +242,17 @@ columns, module settings). The "Also exported, in uns" table in the preview list
             result += [self.primary_object, self.secondary_object, self.tertiary_object]
         result += [self.preview, self.wants_advanced]
         if self.wants_advanced.value:
+            result += [self.sample_key_mode]
+            if self.sample_key_mode == ROLE_MANUAL:
+                result += [self.sample_key_tags]
             result += [self.autoconfig, self.policy, self.wants_mapping_uns]
         return result + [self.wants_overwrite]
+
+    def _sample_tags(self):
+        """The Manual tag list, or None to detect. Mirrors _roles()."""
+        if self.sample_key_mode != ROLE_MANUAL:
+            return None
+        return parse_tags(self.sample_key_tags.value)
 
     # ---- auto-configuration button -------------------------------------------------------
     _gui_pipeline = None
@@ -205,8 +266,13 @@ columns, module settings). The "Also exported, in uns" table in the preview list
         self._gui_pipeline = None
 
     def apply_autoconfig(self, pipeline):
-        """Detect roles afresh (ignoring any Manual values), pin them as Manual, and return the
-        explanation text. Raises RoleError when the pipeline identifies no objects at all."""
+        """Detect the objects to track and the row-name tags afresh (ignoring any Manual values),
+        pin both as Manual, and return the explanation text. Raises RoleError when the pipeline
+        identifies no objects at all.
+
+        Pinning both is the point: after this the export depends on what the pipeline looked like
+        when the button was pressed, not on what it looks like at run time, so a later edit cannot
+        quietly change which objects are exported or how rows are named."""
         ctx = build_context(pipeline, roles=None)
         lines = []
         for role, setting in (("primary", self.primary_object), ("secondary", self.secondary_object),
@@ -220,9 +286,23 @@ columns, module settings). The "Also exported, in uns" table in the preview list
                 lines.append("%s = None. No %s object exists in this pipeline, so nothing is exported "
                              "for that role." % (role, role))
         self.role_mode.value = ROLE_MANUAL
+
+        detected, note = detect_sample_tags(qualify(t) for t in ctx.metadata_tags)
+        self.sample_key_tags.value = ",".join(t[len(TAG_PREFIX):] for t in detected)
+        self.sample_key_mode.value = ROLE_MANUAL
+        if detected:
+            lines.append("row names = <%s>_<label>, %s"
+                         % (">_<".join(t[len(TAG_PREFIX):] for t in detected), note))
+        else:
+            lines.append("row names = img<n>_<label>. " + note[0].upper() + note[1:] +
+                         ". Add a Metadata module extracting Plate, Well and Site for readable names.")
+
         text = ("These settings were filled in from the pipeline:\n\n- " + "\n- ".join(lines) +
-                "\n\nThe mode was switched to Manual so that later pipeline edits cannot silently "
-                "change which objects are exported.")
+                "\n\nBoth modes were switched to Manual so that later pipeline edits cannot "
+                "silently change which objects are exported or how rows are named.")
+        if detected:
+            text += ("\n\nWhether those tags give every image set a different key can only be "
+                     "checked against real values, so the run still appends img<n> if they do not.")
         fallback = (ctx.role_note or {}).get("fallback")
         if fallback:
             text += ("\n\nNote: the choice used the '%s' fallback between the candidates %s." %
@@ -263,7 +343,8 @@ columns, module settings). The "Also exported, in uns" table in the preview list
                           caption="ExportToAnnData feature preview", style=wx.OK | wx.ICON_ERROR)
             return
         _show_feature_preview(channel_report(ctx), object_report(ctx), measurement_report(ctx),
-                              uns_report(ctx, self.wants_mapping_uns.value))
+                              uns_report(ctx, self.wants_mapping_uns.value),
+                              row_name_preview(ctx, self._sample_tags()))
 
     # ---- validation / advice -------------------------------------------------------------
     def _roles(self):
@@ -337,15 +418,15 @@ columns, module settings). The "Also exported, in uns" table in the preview list
             return
         paths = self._paths(ctx)
         os.makedirs(os.path.dirname(paths["__joined__"]), exist_ok=True)
-        settings = {s.text: s.value_text for s in self.settings()}
-        prov = provenance(ctx, m, settings)
-        tables = {obj: build_object_table(ctx, m, obj) for obj in ctx.roles.values()}
-        joined = join_tables(ctx, m, tables, policy=self.policy.value.lower())
-        joined.uns["cellprofiler"] = prov
-        if self.wants_mapping_uns.value:
-            joined.uns["cellprofiler_mapping"] = mapping_to_uns(
-                channel_report(ctx), object_report(ctx), measurement_report(ctx))
-        for message in _advice(ctx):
+        export = build_export(
+            ctx, m, policy=self.policy.value.lower(),
+            exporter_settings={s.text: s.value_text for s in self.settings()},
+            wants_mapping_uns=self.wants_mapping_uns.value,
+            sample_tags=self._sample_tags())
+        joined = export.joined
+        LOGGER.info("ExportToAnnData: row names are %s_<label>, %s",
+                    "_".join(export.naming.parts), export.naming.note)
+        for message in export.advice:
             LOGGER.warning("ExportToAnnData: %s", message)
         LOGGER.info("ExportToAnnData: writing %d cells x %d features (~%.1f MB of float32) to %s",
                     joined.X.shape[0], joined.X.shape[1], joined.X.nbytes / 1e6, paths["__joined__"])
@@ -354,9 +435,7 @@ columns, module settings). The "Also exported, in uns" table in the preview list
         for obj, path in paths.items():
             if obj == "__joined__":
                 continue
-            t = tables[obj]
-            t.uns["cellprofiler"] = prov
-            write_h5ad(t, path)
+            write_h5ad(export.per_object[obj], path)
             LOGGER.info("ExportToAnnData: wrote %s", path)
 
     def upgrade_settings(self, setting_values, variable_revision_number, module_name):
@@ -373,13 +452,23 @@ columns, module settings). The "Also exported, in uns" table in the preview list
             # slot further down.
             setting_values = setting_values[:9] + ["No"] + setting_values[9:]
             variable_revision_number = 3
+        if variable_revision_number == 3:
+            # v3 has no row-name settings. These two go on the end, where settings() puts them, so
+            # nothing already saved shifts position. Automatic is the default, which means a
+            # pipeline saved before this existed may get different row names than it did then:
+            # names now use whatever Plate/Well/Site-like tags it has instead of falling back to
+            # img<n> whenever one was missing. That is the point of the change, and the resolved
+            # scheme is logged and recorded in uns; set Manual with Plate,Well,Site for the old
+            # all-or-nothing behavior.
+            setting_values = setting_values + [ROLE_AUTO, "Plate,Well,Site"]
+            variable_revision_number = 4
         return setting_values, variable_revision_number
 
     def volumetric(self):
         return False
 
 
-def _show_feature_preview(channel_rows, object_rows, measurement_rows, uns_rows):
+def _show_feature_preview(channel_rows, object_rows, measurement_rows, uns_rows, row_names=""):
     """The "See where each measurement will land" dialog: a filterable set of tables
     (scverse_export.preview.render_report_html) for channel, object, and measurement provenance, plus
     what the export carries in uns, for whatever objects are currently configured.
@@ -392,13 +481,14 @@ def _show_feature_preview(channel_rows, object_rows, measurement_rows, uns_rows)
     import wx.html
 
     class _FeaturePreviewDialog(wx.Dialog):
-        def __init__(self, channel_rows, object_rows, measurement_rows, uns_rows):
+        def __init__(self, channel_rows, object_rows, measurement_rows, uns_rows, row_names):
             super().__init__(None, title="ExportToAnnData feature preview", size=(1100, 700),
                              style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.CLOSE_BOX)
             self.channel_rows = channel_rows
             self.object_rows = object_rows
             self.measurement_rows = measurement_rows
             self.uns_rows = uns_rows
+            self.row_names = row_names
             sizer = wx.BoxSizer(wx.VERTICAL)
 
             filter_row = wx.BoxSizer(wx.HORIZONTAL)
@@ -418,7 +508,8 @@ def _show_feature_preview(channel_rows, object_rows, measurement_rows, uns_rows)
             system_size = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT).GetPointSize()
             self.html_window.SetStandardFonts(size=max(system_size + 2, 12))
             self.html_window.SetPage(render_report_html(
-                self.channel_rows, self.object_rows, self.measurement_rows, self.uns_rows))
+                self.channel_rows, self.object_rows, self.measurement_rows, self.uns_rows,
+                row_names=self.row_names))
             sizer.Add(self.html_window, 1, wx.EXPAND | wx.ALL, 5)
 
             close_button = wx.Button(self, id=wx.ID_OK, label="Close")
@@ -431,9 +522,9 @@ def _show_feature_preview(channel_rows, object_rows, measurement_rows, uns_rows)
         def on_filter(self, evt):
             self.html_window.SetPage(render_report_html(
                 self.channel_rows, self.object_rows, self.measurement_rows, self.uns_rows,
-                self.filter_ctrl.GetValue()))
+                self.filter_ctrl.GetValue(), row_names=self.row_names))
 
-    dlg = _FeaturePreviewDialog(channel_rows, object_rows, measurement_rows, uns_rows)
+    dlg = _FeaturePreviewDialog(channel_rows, object_rows, measurement_rows, uns_rows, row_names)
     try:
         dlg.ShowModal()
     finally:
