@@ -5,9 +5,9 @@ import numpy
 import pytest
 import cellprofiler_core.measurement
 
-from cpexport.assemble import Table, build_object_table
-from cpexport.introspect import build_context
-from cpexport.names import Feature, to_cpm_names
+from scverse_export.assemble import Table, build_object_table
+from scverse_export.introspect import build_context
+from scverse_export.names import Feature, to_cpm_names
 
 
 def make_measurements(meas_arrays, image_metadata=None, image_numbers=(1,), without_counts=()):
@@ -114,7 +114,7 @@ def test_missing_feature_is_nan_and_counted(ctx, meas_arrays):
     assert (t.obs["n_missing_features"] >= 1).all()
 
 
-from cpexport.assemble import JoinError, PolicyError, join_tables, provenance
+from scverse_export.assemble import JoinError, PolicyError, join_tables, provenance
 
 
 def _tables(ctx, m):
@@ -254,7 +254,7 @@ def test_join_two_image_sets(ctx, meas_arrays):
 # ---- Count_ fallbacks and length mismatches (spec section 5: never a silent NaN / silent skip) ----
 
 def test_missing_count_falls_back_to_longest_array(ctx, meas_arrays, caplog):
-    with caplog.at_level(logging.WARNING, logger="cpexport.assemble"):
+    with caplog.at_level(logging.WARNING, logger="scverse_export.assemble"):
         m = make_measurements(meas_arrays, without_counts=("Cells",))
         t = build_object_table(ctx, m, "Cells")
     assert t.X.shape[0] == 289
@@ -264,7 +264,7 @@ def test_missing_count_falls_back_to_longest_array(ctx, meas_arrays, caplog):
 def test_feature_with_wrong_length_warns_and_stays_nan(ctx, meas_arrays, caplog):
     arrays = {o: dict(f) for o, f in meas_arrays.items()}
     arrays["Cells"]["Intensity_MeanIntensity_DNA"] = arrays["Cells"]["Intensity_MeanIntensity_DNA"][:10]
-    with caplog.at_level(logging.WARNING, logger="cpexport.assemble"):
+    with caplog.at_level(logging.WARNING, logger="scverse_export.assemble"):
         t = build_object_table(ctx, make_measurements(arrays), "Cells")
     j = t.var_names.index("Intensity_MeanIntensity__DNA")
     assert t.X.shape[0] == 289 and numpy.isnan(t.X[:, j]).all()
@@ -279,7 +279,7 @@ def test_feature_mismatch_only_affects_its_own_image_set(ctx, meas_arrays, caplo
     full = meas_arrays["Cells"]["Intensity_MeanIntensity_DNA"]
     m.next_image_set(2)
     m.add_measurement("Cells", "Intensity_MeanIntensity_DNA", full[:10])
-    with caplog.at_level(logging.WARNING, logger="cpexport.assemble"):
+    with caplog.at_level(logging.WARNING, logger="scverse_export.assemble"):
         t = build_object_table(ctx, m, "Cells")
     j = t.var_names.index("Intensity_MeanIntensity__DNA")
     assert t.X.shape[0] == 2 * 289

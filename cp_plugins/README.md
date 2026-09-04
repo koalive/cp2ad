@@ -6,7 +6,7 @@ squidpy run on the same masks are interchangeable per compartment. Design: `../d
 
 ## Use
 1. Point CellProfiler at this folder: `Preferences -> CellProfiler plugins directory`, or headless
-   `--plugins-directory=/path/to/cp_export`.
+   `--plugins-directory=/path/to/cp_plugins`.
 2. Add **ExportToAnnData** as the last module. Defaults work for IdentifyPrimary -> Secondary -> Tertiary pipelines.
 3. Output: `<prefix>.h5ad` (joined, `var_names = <Object>__<feature>`), optionally `<prefix>_<Object>.h5ad`.
 
@@ -52,7 +52,7 @@ ordinary candidate, but it never stands in for its input. So a pipeline that mea
 keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only the positive nuclei.
 
 ```sh
-/Applications/CellProfiler.app/Contents/MacOS/cp -c -r -p pipeline.cppipe -i images -o out --plugins-directory=cp_export
+/Applications/CellProfiler.app/Contents/MacOS/cp -c -r -p pipeline.cppipe -i images -o out --plugins-directory=cp_plugins
 ```
 
 ## What lands where
@@ -67,7 +67,7 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
   or what label CellProfiler happened to assign them or their neighbors. These go to `obs` instead:
   `cp_measure`-named columns (`Center_X`, `Orientation`, `Parent_Nuclei`, ...) on the per-object
   files, `<Object>__<name>` (e.g. `Nuclei__Center_X`, `Cells__Number_Object_Number`) on the joined
-  file. `is_extrinsic()` in `cpexport/names.py` is the single source of truth for the split; it
+  file. `is_extrinsic()` in `scverse_export/names.py` is the single source of truth for the split; it
   currently covers:
   - **Position and orientation**: the whole `Location` category (an object's own center and, per
     channel, its intensity-weighted/max-intensity center, all absolute pixel coordinates) plus the
@@ -142,6 +142,6 @@ Metadata Plate/Well/Site are set. The log line before each write reports the sha
 cd plugin_sandbox && pixi install && pixi run pip install "numpy<2" "cython<3" setuptools wheel \
   && pixi run pip install --no-build-isolation python-javabridge==4.0.5 \
   && pixi run pip install "cellprofiler-core==4.2.8.1" pytest "anndata<0.11" pandas && cd ..
-cd cp_export && ../plugin_sandbox/.pixi/envs/default/bin/python -m pytest -q
+cd cp_plugins && ../plugin_sandbox/.pixi/envs/default/bin/python -m pytest -q
 ```
 `tests/test_integration_app.py` runs the real app binary headless and is skipped when it is absent.

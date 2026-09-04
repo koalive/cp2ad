@@ -15,7 +15,7 @@ image axes) and its identity and linkage (its own arbitrary object number, ``Par
 describe where or how an object was imaged, or which arbitrary label CellProfiler assigned it or
 its neighbors, not its biology. Left in ``X`` they would bias downstream similarity and clustering
 on those instead. They are exported to ``obs`` instead, per object on the compartment's own file
-and as ``<Object>__<name>`` on the joined file; see ``cpexport.names.is_extrinsic`` for the exact
+and as ``<Object>__<name>`` on the joined file; see ``scverse_export.names.is_extrinsic`` for the exact
 rules, or press "See where each measurement will land" in the module's own settings to inspect them
 for your pipeline directly.
 
@@ -36,10 +36,10 @@ import os
 import sys
 
 # Dev loop: CellProfiler's "Test > Reload Modules' Source" re-imports this file but leaves the
-# cpexport package cached in sys.modules. With CPEXPORT_DEV=1 we purge it here so a reload picks
+# scverse_export package cached in sys.modules. With SCVERSE_EXPORT_DEV=1 we purge it here so a reload picks
 # up library edits too (settings changes still need a CellProfiler restart).
-if os.environ.get("CPEXPORT_DEV"):
-    for _name in [m for m in sys.modules if m == "cpexport" or m.startswith("cpexport.")]:
+if os.environ.get("SCVERSE_EXPORT_DEV"):
+    for _name in [m for m in sys.modules if m == "scverse_export" or m.startswith("scverse_export.")]:
         del sys.modules[_name]
 
 from cellprofiler_core.constants.module import IO_FOLDER_CHOICE_HELP_TEXT
@@ -53,15 +53,15 @@ from cellprofiler_core.setting.do_something import DoSomething
 from cellprofiler_core.setting.subscriber import LabelSubscriber
 from cellprofiler_core.setting.text import Directory, Text
 
-from cpexport.advice import advice as _advice
-from cpexport.assemble import POLICIES, build_object_table, join_tables, provenance
-from cpexport.h5ad import write_h5ad
-from cpexport.introspect import RoleError, build_context
-from cpexport.preview import (channel_report, mapping_to_uns, measurement_report, object_report,
+from scverse_export.advice import advice as _advice
+from scverse_export.assemble import POLICIES, build_object_table, join_tables, provenance
+from scverse_export.h5ad import write_h5ad
+from scverse_export.introspect import RoleError, build_context
+from scverse_export.preview import (channel_report, mapping_to_uns, measurement_report, object_report,
                               render_report_html, uns_report)
 
 LOGGER = logging.getLogger(__name__)
-POLICY_CHOICES = tuple(p.capitalize() for p in POLICIES)  # single source of truth: cpexport.assemble.POLICIES
+POLICY_CHOICES = tuple(p.capitalize() for p in POLICIES)  # single source of truth: scverse_export.assemble.POLICIES
 ROLE_AUTO, ROLE_MANUAL = "Automatic", "Manual"
 
 
@@ -381,7 +381,7 @@ columns, module settings). The "Also exported, in uns" table in the preview list
 
 def _show_feature_preview(channel_rows, object_rows, measurement_rows, uns_rows):
     """The "See where each measurement will land" dialog: a filterable set of tables
-    (cpexport.preview.render_report_html) for channel, object, and measurement provenance, plus
+    (scverse_export.preview.render_report_html) for channel, object, and measurement provenance, plus
     what the export carries in uns, for whatever objects are currently configured.
 
     wx is imported here, not at module scope, so the module stays importable headless when wx

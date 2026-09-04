@@ -1,8 +1,8 @@
 import logging
 
 import pytest
-from cpexport.introspect import Context, ObjectInfo, RoleError, _filter_pairs, build_context, detect_roles
-from cpexport.names import to_cpm_names
+from scverse_export.introspect import Context, ObjectInfo, RoleError, _filter_pairs, build_context, detect_roles
+from scverse_export.names import to_cpm_names
 from conftest import FakeModule, FakePipeline, FakeSetting
 
 
@@ -168,7 +168,7 @@ def test_detect_roles_several_tertiaries_picks_the_most_related_chain(caplog):
                                      "Name the tertiary objects to be identified": "C2"}),
         ("MeasureObjectIntensity", {"Select objects to measure": "C2"}),
     )
-    with caplog.at_level(logging.WARNING, logger="cpexport.introspect"):
+    with caplog.at_level(logging.WARNING, logger="scverse_export.introspect"):
         roles, note = detect_roles(objects, modules)
     assert roles == {"primary": "A2", "secondary": "B2", "tertiary": "C2"}
     assert note == {"fallback": "most_related_tertiary", "candidates": ["C1", "C2"]}
@@ -213,7 +213,7 @@ def test_detect_roles_ambiguous_primary_picks_the_most_related(caplog):
         ("RelateObjects", {"Parent objects": "B", "Child objects": "Speckles"}),
         ("MeasureObjectIntensity", {"Select objects to measure": "B, Speckles"}),
     )
-    with caplog.at_level(logging.WARNING, logger="cpexport.introspect"):
+    with caplog.at_level(logging.WARNING, logger="scverse_export.introspect"):
         roles, note = detect_roles(_two_primaries(), modules)
     assert roles == {"primary": "B"}
     assert note == {"fallback": "most_related_primary", "candidates": ["A", "B"]}
@@ -279,7 +279,7 @@ def test_detect_roles_relabelled_chain_is_one_candidate(caplog):
                            "Name the relabeled objects": "Spots"},
          [("NucleiIncludingEdges", "Nuclei"), ("MaskedSpots", "Spots")]),
     )
-    with caplog.at_level(logging.WARNING, logger="cpexport.introspect"):
+    with caplog.at_level(logging.WARNING, logger="scverse_export.introspect"):
         roles, note = detect_roles(objects, modules)
     assert roles == {"primary": "Nuclei"}
     assert note == {"fallback": None, "candidates": []}
@@ -386,7 +386,7 @@ def _pipeline_with_broken_module(probe, broken_num):
 
 
 def test_broken_module_introspection_falls_back(probe, caplog):
-    with caplog.at_level(logging.WARNING, logger="cpexport.introspect"):
+    with caplog.at_level(logging.WARNING, logger="scverse_export.introspect"):
         ctx = build_context(_pipeline_with_broken_module(probe, 10))  # MeasureObjectIntensity
     intensity = [f for f in ctx.features if f.object == "Cells" and f.category == "Intensity"]
     assert intensity and all(f.parsed_by == "fallback" for f in intensity)

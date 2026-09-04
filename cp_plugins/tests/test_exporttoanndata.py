@@ -156,7 +156,7 @@ def test_apply_autoconfig_ignores_previous_manual_values(fake_pipeline):
 def test_apply_autoconfig_no_objects_raises_roleerror():
     import exporttoanndata as e
     from conftest import FakePipeline
-    from cpexport.introspect import RoleError
+    from scverse_export.introspect import RoleError
     import pytest as _pytest
     module = e.ExportToAnnData()
     with _pytest.raises(RoleError):

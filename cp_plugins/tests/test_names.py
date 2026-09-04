@@ -1,6 +1,6 @@
 import re
 import pytest
-from cpexport.names import Feature, is_extrinsic, split_pair, to_cpm_names
+from scverse_export.names import Feature, is_extrinsic, split_pair, to_cpm_names
 
 CH = ["DNA", "PH3", "cellbody"]
 

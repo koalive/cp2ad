@@ -7,7 +7,7 @@ squidpy run on the same masks are interchangeable per compartment.
 
 ## What it does
 - Adds an **ExportToAnnData** module to CellProfiler (point CellProfiler's plugins directory at
-  [`cp_export/`](cp_export)).
+  [`cp_plugins/`](cp_plugins)).
 - Joins a pipeline's primary/secondary/tertiary objects (nuclei/cells/cytoplasm in a standard
   pipeline) into one row per cell.
 - Writes measurements to `X` using cp_measure/squidpy-style feature names, but only the ones that
@@ -26,7 +26,7 @@ squidpy run on the same masks are interchangeable per compartment.
   accounting for what the file carries outside those columns. An advanced-features checkbox saves
   the first three into `uns["cellprofiler_mapping"]` as DataFrames on every run.
 
-See [`cp_export/README.md`](cp_export/README.md) for installation, usage, and the full export
+See [`cp_plugins/README.md`](cp_plugins/README.md) for installation, usage, and the full export
 schema.
 
 ## Notebook

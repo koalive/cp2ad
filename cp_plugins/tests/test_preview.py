@@ -1,6 +1,6 @@
-from cpexport.assemble import build_object_table, join_tables
-from cpexport.introspect import build_context
-from cpexport.preview import (DEST_MERGED, DEST_OBS, DEST_X, channel_report, mapping_to_uns,
+from scverse_export.assemble import build_object_table, join_tables
+from scverse_export.introspect import build_context
+from scverse_export.preview import (DEST_MERGED, DEST_OBS, DEST_X, channel_report, mapping_to_uns,
                               measurement_report, object_report, render_channel_table,
                               render_object_table, render_report_html, report_summary,
                               uns_report)
@@ -148,8 +148,8 @@ def test_mapping_to_uns_round_trips_as_dataframes(fake_pipeline, tmp_path):
     import numpy
     import pandas
     anndata_lib = __import__("anndata")
-    from cpexport.assemble import Table
-    from cpexport.h5ad import write_h5ad
+    from scverse_export.assemble import Table
+    from scverse_export.h5ad import write_h5ad
 
     ctx = build_context(fake_pipeline)
     mapping = mapping_to_uns(channel_report(ctx), object_report(ctx), measurement_report(ctx))

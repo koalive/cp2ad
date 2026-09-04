@@ -1,6 +1,6 @@
 import numpy
-from cpexport.assemble import build_object_table, join_tables
-from cpexport.introspect import build_context
+from scverse_export.assemble import build_object_table, join_tables
+from scverse_export.introspect import build_context
 from test_assemble import make_measurements
 
 

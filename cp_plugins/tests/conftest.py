@@ -12,9 +12,9 @@ import numpy
 import pytest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PLUGIN_DIR = os.path.dirname(HERE)                      # cp_export/
+PLUGIN_DIR = os.path.dirname(HERE)                      # cp_plugins/
 SANDBOX = os.path.join(os.path.dirname(PLUGIN_DIR), "plugin_sandbox")
-sys.path.insert(0, PLUGIN_DIR)                          # so `import cpexport` and `import exporttoanndata` work
+sys.path.insert(0, PLUGIN_DIR)                          # so `import scverse_export` and `import exporttoanndata` work
 
 
 @pytest.fixture(scope="session")

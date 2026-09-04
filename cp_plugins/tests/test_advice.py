@@ -1,10 +1,10 @@
 """Spec section 5 advice messages."""
 import dataclasses
 
-from cpexport.advice import advice
-from cpexport.assemble import provenance
-from cpexport.introspect import build_context
-from cpexport.names import Feature
+from scverse_export.advice import advice
+from scverse_export.assemble import provenance
+from scverse_export.introspect import build_context
+from scverse_export.names import Feature
 from test_assemble import make_measurements
 
 OBJECTS_FROM_FILE = Feature(object="Image", cp_name="ObjectsFileName_Cells", category="ObjectsFileName",

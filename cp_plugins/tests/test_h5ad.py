@@ -1,8 +1,8 @@
 import numpy
 import anndata
 
-from cpexport.assemble import Table
-from cpexport.h5ad import write_h5ad
+from scverse_export.assemble import Table
+from scverse_export.h5ad import write_h5ad
 
 
 def _table():
