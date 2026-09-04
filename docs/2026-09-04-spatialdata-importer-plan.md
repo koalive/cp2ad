@@ -1,8 +1,6 @@
 # Where the SpatialData importer belongs
 
-> **Status, 2026-09-04.** Built and working. `read_cellprofiler_export` and `cellprofiler_export_plates` are in `cell-painting-io` at `src/cell_painting_io/cellprofiler.py`, with 17 tests in `tests/test_cellprofiler.py`. Validated on the real four-field export: 4 Images, 8 Labels, a 151 x 126 table, 4 coordinate systems, the label-to-row join exact for every field, and a zarr round-trip preserving `X` and the provenance. Two exporter fixes were needed and are made but not yet committed, since they need a GUI run. Naming alignment with `read_plate` stays open by decision, and is documented in both repos rather than worked around.
-
-
+> **Status, 2026-09-04.** Built and working. `read_cellprofiler_export` and `cellprofiler_export_plates` are in `cell-painting-io` at `src/cell_painting_io/cellprofiler.py`, with 17 tests in `tests/test_cellprofiler.py`. Validated on the real four-field export: 4 Images, 8 Labels, a 151 x 126 table, 4 coordinate systems, the label-to-row join exact for every field, and a zarr round-trip preserving `X` and the provenance. Two exporter fixes were needed, committed in `d5c2777` after a GUI run. The reader is up as [scverse/cell-painting-io#11](https://github.com/scverse/cell-painting-io/pull/11), from a fork, since we have no write access there. Naming alignment with `read_plate` stays open by decision, and is documented in both repos.
 
 Both candidate repos are checked out at `~/Documents/Tests/`. I read them against what ExportForSpatialData actually writes.
 
@@ -54,16 +52,15 @@ Error raised while writing key 'elements' of ... to /tables/cells/uns/cellprofil
 
 Pandas resolves `frame.dtype` to a column of that name, and anndata's writer dispatches on `elem.dtype.kind`, so it got a Series where it expected a numpy dtype. The manifest travels in the table's `uns`, so one unwritable column made the whole SpatialData object unwritable. A column named `shape` is safe, because the real `DataFrame.shape` attribute shadows it; I checked the other four manifest tables and only `elements` was affected. The column is `element_dtype` now, with a test asserting no manifest column is named `dtype`, since nothing upstream of the zarr write catches it.
 
-## Two divergences from `read_plate`, left in place on purpose
+## Divergences from `read_plate`
 
-**Element naming.** Ours is `{sample_key}__{Object}`, e.g. `A02_03_img1__Cells`; theirs is `{plate}_{well}_s{site}_{object}` with a lowercase object, e.g. `BR00000001_A01_s1_cells`. Images are `{field}_image` in both, which is the one thing that already agrees. Exact string agreement is not reachable anyway, because our key adapts to whichever Metadata tags a pipeline carries. Structural agreement is: element name = field-of-view key plus role, one separator, lowercase role. Deferred by decision, and stated in both READMEs and in the reader's docstring so nobody assumes an object from the gallery and an object from a run name the same thing the same way.
+**Element naming.** Ours is `{sample_key}__{Object}`, e.g. `A02_03_img1__Cells`; theirs is `{plate}_{well}_s{site}_{object}` with a lowercase object, e.g. `BR00000001_A01_s1_cells`. Images are `{field}_image` in both, which is the one thing that already agrees. Exact string agreement is not reachable anyway, because our key adapts to whichever Metadata tags a pipeline carries. Structural agreement is: element name = field-of-view key plus role, one separator, lowercase role. Deferred by decision. Both READMEs and the reader's docstring record it, so nobody assumes an object from the gallery and an object from a run name the same thing the same way.
 
-**Coordinate systems.** `read_plate` gives every element three, field, well and plate, built from stage coordinates. We give one, the per-field identity, because the module exports no stage coordinates or pixel size. That is phase 2 of the ExportForSpatialData plan. Until then a plate reads as unstitched fields, which the reader says plainly rather than faking with a nominal grid.
+**Coordinate systems.** `read_plate` gives every element three, field, well and plate, built from stage coordinates. We give one, the per-field identity, because the module exports no stage coordinates or pixel size. That is phase 2 of the ExportForSpatialData plan. Until then a plate reads as unstitched fields, and the reader says so.
 
 ## What is left
 
-1. A GUI run to confirm the two exporter fixes, then commit them here.
-2. Naming alignment, when it is decided.
-3. A round-trip test running both exports over one pipeline and asserting the per-cell tables agree. It needs a real CellProfiler run, so it belongs here rather than in `cell-painting-io`.
-4. Phase 2, once the exporter records stage offsets: well and plate systems through `fov_offsets`, and well Shapes through `_well_shapes`.
-5. `instance_key` is `label_id` here and `ObjectNumber` in `read_plate`. Both hold the CellProfiler object number. Part of the naming decision.
+1. Naming alignment, when it is decided. The PR asks the maintainers which convention they want.
+2. A round-trip test running both exports over one pipeline and asserting the per-cell tables agree. It needs a real CellProfiler run, so it belongs here rather than in `cell-painting-io`.
+3. Phase 2, once the exporter records stage offsets: well and plate systems through `fov_offsets`, and well Shapes through `_well_shapes`.
+4. `instance_key` is `label_id` here and `ObjectNumber` in `read_plate`. Both hold the CellProfiler object number. Part of the naming decision.

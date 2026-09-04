@@ -91,3 +91,8 @@ Removing patterns is half the job. Sterile, voiceless writing is just as obvious
 29. **Active voice.** Prefer it. Catch "is/are/was/were + past participle" and name the actor: "queries are validated" becomes "the compiler validates queries", "the file is parsed by the loader" becomes "the loader parses the file". Passive is fine only when the actor is unknown or genuinely doesn't matter.
 30. **Cut adverbs, or use a stronger verb.** "runs quickly" becomes "is fast" or the number. "significantly improves" becomes the measured delta. An adverb propping up a weak verb means the verb is wrong.
 31. **Prefer the plain word.** "utilize" becomes "use", "leverage" becomes "use", "facilitate" becomes "help", "numerous" becomes "many", "in the event that" becomes "if". The fancier synonym is rarely clearer.
+
+### Self-grading (local addition, not in the upstream skill)
+
+32. **Don't grade your own conduct.** "stated rather than hidden", "left in place on purpose", "documented rather than papered over", "says plainly rather than faking it", "chosen deliberately". These praise the writer for not doing the bad thing, which tells the reader nothing they can use. Delete the comparison and state the fact: "documented the mismatch rather than translating in the reader and hiding it" becomes "the names are the exporter's own; the mismatch is in the docstring". Keep "rather than" only when both sides are real options the reader is weighing.
+33. **A heading names its section, it never defends it.** No self-grading clause after a comma, and no count the reader can do themselves. "## Two divergences from `read_plate`, stated rather than hidden" becomes "## Divergences from `read_plate`". The argument for the choice belongs in the paragraph, if anywhere.
