@@ -7,11 +7,16 @@ wheels/
 *.egg-info
 .pytest_cache/
 
-# Virtual environments
+# Virtual environments. Two of them: .venv runs the plugin tests on 3.10, and .venv-spatial runs
+# test-importer-to-viewer.ipynb, which needs 3.12 for the cell-painting-io reader.
 .venv
+.venv-spatial
 
 # OS
 .DS_Store
+
+# Where spatialdata-plot and scanpy put figures when asked to save one
+figures/
 
 # CellProfiler run outputs (regenerate by re-running the pipeline; not source)
 Testrun_cp2sd_*.csv
