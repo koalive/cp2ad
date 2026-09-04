@@ -73,8 +73,9 @@ from scverse_export.samples import PREFIX as TAG_PREFIX
 from scverse_export.samples import detect_sample_tags, parse_tags, sample_key, stable_sample_naming
 from scverse_export.spatial import (ERROR_MEASUREMENT, UNKNOWN_PLATE, channel_axis_rows,
                                     element_rows, image_path, labels_path, manifest_to_uns,
-                                    plate_of, plates_by_image, region_key_column, selected_channels,
-                                    selected_objects, subset_table, table_path)
+                                    plate_of, plates_by_image, region_key_column,
+                                    selected_channels, selected_objects, spatialdata_attrs,
+                                    subset_table, table_path)
 
 LOGGER = logging.getLogger(__name__)
 POLICY_CHOICES = tuple(p.capitalize() for p in POLICIES)
@@ -473,6 +474,8 @@ always overwritten, since they are written one cycle at a time.""")
             plate_root = os.path.join(root, plate)
             keep = numpy.isin(numpy.asarray(joined.obs["ImageNumber"]), plate_images)
             table = subset_table(joined, keep)
+            # The rows annotate one labels element per field of view, not the object as a whole.
+            table.uns["spatialdata_attrs"] = spatialdata_attrs(table.obs["region_key"])
             rows = element_rows(plate_root, plate_images, values, naming, objects, errors)
             table.uns.setdefault("cellprofiler_mapping", {}).update(
                 manifest_to_uns(rows, channel_axis_rows(channels)))

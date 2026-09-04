@@ -67,6 +67,13 @@ measurement, and reported in the manifest.
 loaded from a file and every object the pipeline made. Narrow them as you like; a narrowed
 selection stays narrowed.
 
+Read a plate folder back with `cell_painting_io.read_cellprofiler_export`, in
+[cell-painting-io](https://github.com/scverse/cell-painting-io), which turns one folder into a
+SpatialData object: an Image and a Labels element per field of view, and the table annotating them.
+`cellprofiler_export_plates` lists the plate folders of a multi-plate run. Each field gets its own
+coordinate system and the fields are not placed relative to each other, since stage coordinates are
+phase 2.
+
 **With no `Metadata_Plate` in the pipeline, every image set is assumed to come from one plate** and
 lands in a single folder named `plate`. That is wrong for a run spanning several plates, and there
 is no way to tell from the metadata, so the module reports it as a warning and logs it at the start

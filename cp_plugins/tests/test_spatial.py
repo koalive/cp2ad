@@ -13,7 +13,8 @@ from scverse_export.spatial import (ELEMENT_IMAGE, ELEMENT_LABELS, STATUS_FAILED
                                     element_rows, image_path, labels_path, manifest_to_uns,
                                     plate_of, plates_by_image, region_key_column,
                                     region_key_value, safe_segment, selected_channels,
-                                    selected_objects, subset_table, table_path)
+                                    selected_objects, spatialdata_attrs, subset_table,
+                                    table_path)
 
 NAMING = SampleNaming(tags=("Metadata_Well", "Metadata_Field"), with_image_number=True)
 
@@ -81,9 +82,9 @@ def test_element_rows_read_shape_and_dtype_off_the_written_files(tmp_path):
     assert [r.element_type for r in rows] == [ELEMENT_IMAGE, ELEMENT_LABELS]
     image, labels = rows
     assert image.sample_key == key and image.element_name == "" and image.region_key_value == ""
-    assert image.shape == "3,8,16" and image.dtype == "uint16" and image.status == STATUS_OK
+    assert image.shape == "3,8,16" and image.element_dtype == "uint16" and image.status == STATUS_OK
     assert labels.element_name == "Nuclei" and labels.region_key_value == f"{key}__Nuclei"
-    assert labels.shape == "8,16" and labels.dtype == "int32" and labels.status == STATUS_OK
+    assert labels.shape == "8,16" and labels.element_dtype == "int32" and labels.status == STATUS_OK
     assert all(r.error == "" for r in rows)
 
 
@@ -94,7 +95,7 @@ def test_a_missing_file_is_reported_as_failed_not_as_a_crash(tmp_path):
     rows = element_rows(str(tmp_path), [1], values, NAMING, ["Nuclei"])
     assert all(r.status == STATUS_FAILED for r in rows)
     assert all(r.error for r in rows)
-    assert all(r.shape == "" and r.dtype == "" for r in rows)
+    assert all(r.shape == "" and r.element_dtype == "" for r in rows)
 
 
 def test_a_recorded_error_is_carried_into_every_row_for_that_image_set(tmp_path):
@@ -358,3 +359,34 @@ def test_two_plates_produce_two_self_consistent_folders(tmp_path):
     assert p1.n_obs + p2.n_obs == joined.X.shape[0]
     assert not (set(p1.obs["region_key"]) & set(p2.obs["region_key"]))
     assert not (set(p1.obs_names) & set(p2.obs_names))
+
+
+# ---- what SpatialData needs of the table -------------------------------------------------------
+
+def test_spatialdata_attrs_name_the_label_elements_not_the_object():
+    """The per-object builder sets region to the object name, `Cells`, which is the one region an
+    ExportToAnnData file has. Here the rows annotate one labels element per field of view, so the
+    region has to be that list, or TableModel.parse refuses the table (spatialdata issue #414)."""
+    attrs = spatialdata_attrs(["A02_03_img1__Cells", "B04_01_img2__Cells", "A02_03_img1__Cells"])
+    assert attrs["region"] == ["A02_03_img1__Cells", "B04_01_img2__Cells"]
+    assert attrs["region_key"] == "region_key"
+    assert attrs["instance_key"] == "label_id"
+
+
+def test_spatialdata_attrs_regions_are_all_real_elements():
+    """The region list and the manifest have to agree, since the importer looks up one by the
+    other."""
+    values = {1: {"Metadata_Well": "A02", "Metadata_Field": "03"}}
+    rows = element_rows("/nowhere", [1], values, NAMING, ["Nuclei", "Cells"])
+    elements = {r.region_key_value for r in rows if r.element_type == ELEMENT_LABELS}
+    attrs = spatialdata_attrs([r.region_key_value for r in rows if r.element_name == "Cells"])
+    assert set(attrs["region"]) <= elements
+
+
+def test_no_manifest_column_is_named_dtype():
+    """A column called `dtype` is shadowed by pandas attribute access, so `frame.dtype` returns the
+    column and anndata's writer, which dispatches on `elem.dtype.kind`, raises. The table then
+    cannot be written to zarr at all, which no unit test catches because it happens downstream."""
+    frames = manifest_to_uns(element_rows("/nowhere", [], {}, NAMING, []), channel_axis_rows(["DNA"]))
+    for name, frame in frames.items():
+        assert "dtype" not in frame.columns, name

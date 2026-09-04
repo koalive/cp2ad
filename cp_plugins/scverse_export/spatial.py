@@ -41,6 +41,10 @@ UNKNOWN_PLATE = "plate"
 # is the one channel that carries values from a worker process to the main one.
 ERROR_MEASUREMENT = "ExportForSpatialData_Error"
 
+# obs columns SpatialData joins a table to its label arrays by: which element a row annotates, and
+# which integer in that element is the row. label_id is already there for every exported object.
+REGION_KEY, INSTANCE_KEY = "region_key", "label_id"
+
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -53,7 +57,9 @@ class ElementRow:
     element_name: str           # the object name; empty on an image row
     path: str                   # relative to the plate folder
     shape: str                  # comma-joined, e.g. "4,2048,2048"
-    dtype: str
+    # Not `dtype`: pandas resolves df.dtype to a column of that name, and anndata's writer reads
+    # elem.dtype.kind to dispatch, so the column made the whole table unwritable to zarr.
+    element_dtype: str
     region_key_value: str       # joins to obs["region_key"]; empty on an image row
     status: str                 # STATUS_OK | STATUS_FAILED
     error: str
@@ -108,6 +114,19 @@ def region_key_value(key: str, obj: str) -> str:
     return f"{key}__{obj}"
 
 
+def spatialdata_attrs(regions: Iterable[str]) -> Dict[str, Any]:
+    """uns["spatialdata_attrs"] for an exported table: which elements its rows annotate.
+
+    The per-object table builder names the region after the object, `Cells`, because that is the
+    only region an ExportToAnnData file has. Here the rows annotate one labels element per field of
+    view, `<field>__Cells`, so the region is the list of those. Getting this wrong is not a detail
+    SpatialData tolerates: TableModel.parse refuses a table whose region names no element it holds,
+    which is [issue #414](https://github.com/scverse/spatialdata/issues/414).
+    """
+    return {"region": sorted(set(str(r) for r in regions)),
+            "region_key": REGION_KEY, "instance_key": INSTANCE_KEY}
+
+
 def channel_axis_rows(channels: Sequence[str]) -> List[ChannelAxisRow]:
     return [ChannelAxisRow(channel=c, stack_index=i) for i, c in enumerate(channels)]
 
@@ -121,16 +140,16 @@ def _row(sample_key_value: str, image_number: int, element_type: str, element_na
     anything in the ordinary case.
     """
     from .raster import array_info                      # local: keeps h5py off this module's import
-    shape, dtype, status = "", "", STATUS_FAILED
+    shape, element_dtype, status = "", "", STATUS_FAILED
     if not error:
         try:
-            dims, dtype = array_info(os.path.join(root, path))
+            dims, element_dtype = array_info(os.path.join(root, path))
             shape, status = ",".join(str(d) for d in dims), STATUS_OK
         except Exception as exc:                        # missing, truncated, or not readable
             error = f"{type(exc).__name__}: {exc}"
     return ElementRow(
         sample_key=sample_key_value, image_number=image_number, element_type=element_type,
-        element_name=element_name, path=path, shape=shape, dtype=dtype,
+        element_name=element_name, path=path, shape=shape, element_dtype=element_dtype,
         region_key_value=region_key_value(sample_key_value, element_name) if element_name else "",
         status=status, error=error)
 
