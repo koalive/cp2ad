@@ -9,6 +9,7 @@ import numpy
 
 from .introspect import Context, IMAGE, file_loaded_objects
 from .names import is_extrinsic, to_cpm_names
+from .samples import has_sample_tags, obs_name
 
 LOGGER = logging.getLogger(__name__)
 
@@ -133,23 +134,6 @@ def _make_var(rows, obj: str) -> Dict[str, numpy.ndarray]:
     }
 
 
-def _fmt(v) -> str:
-    """Metadata values are coerced to float in obs; keep whole numbers looking like the tag did
-    (a Site read back as 1.0 must still spell "1" in the obs name)."""
-    if v is None:
-        return ""
-    if isinstance(v, (float, numpy.floating)) and numpy.isfinite(v) and float(v).is_integer():
-        return str(int(v))
-    return str(v)
-
-
-def _obs_name(md: Dict[str, Any], n: int, label: int, tags_ok: bool) -> str:
-    if tags_ok:
-        return "_".join([_fmt(md["Metadata_Plate"]), _fmt(md["Metadata_Well"]),
-                         _fmt(md["Metadata_Site"]), str(label)])
-    return f"img{n}_{label}"
-
-
 def build_object_table(ctx: Context, m, obj: str) -> Table:
     rows = _var_columns(ctx, obj)
     extrinsic_rows = _extrinsic_columns(ctx, obj)
@@ -161,7 +145,7 @@ def build_object_table(ctx: Context, m, obj: str) -> Table:
     # module tags). Union both sources so obs_names and obs columns see runtime-only tags too.
     md_feats = sorted(set(f"Metadata_{t}" for t in ctx.metadata_tags)
                        | set(f for f in m.get_feature_names(IMAGE) if f.startswith("Metadata_")))
-    tags_ok = all(f in md_feats for f in ("Metadata_Plate", "Metadata_Well", "Metadata_Site"))
+    tags_ok = has_sample_tags(md_feats)
 
     wanted = list(dict.fromkeys([f.cp_name for _, _, f in rows] + [f.cp_name for _, _, f in extrinsic_rows] +
                                  ["Location_Center_X", "Location_Center_Y"]))
@@ -238,7 +222,7 @@ def build_object_table(ctx: Context, m, obj: str) -> Table:
         for key in md_feats:
             md_cols[key].extend([md[key]] * count)
         labels = numpy.arange(1, count + 1)
-        obs_names.extend(_obs_name(md, n, int(l), tags_ok) for l in labels)
+        obs_names.extend(obs_name(md, n, int(l), tags_ok) for l in labels)
         label_id.append(labels)
         imgnum.append(numpy.full(count, n, dtype=numpy.int32))
 

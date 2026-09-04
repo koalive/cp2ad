@@ -1,12 +1,22 @@
-"""Shared fixtures. Headless must be set before any other cellprofiler_core import."""
+"""Shared fixtures. Headless must be set before any other cellprofiler_core import.
+
+Most of this suite needs cellprofiler_core plus the recorded fixtures under plugin_sandbox/. Parts
+of the package need neither (names, samples, h5ad, raster), and those have to stay testable in a
+plain checkout, so a missing dependency skips the tests that need it instead of failing collection
+for everything.
+"""
 import json
 import os
 import re
 import sys
 
-import cellprofiler_core.preferences
+try:
+    import cellprofiler_core.preferences
 
-cellprofiler_core.preferences.set_headless()
+    cellprofiler_core.preferences.set_headless()
+    HAVE_CELLPROFILER = True
+except ImportError:                     # plain checkout: the pure-python tests still run
+    HAVE_CELLPROFILER = False
 
 import numpy
 import pytest
@@ -16,30 +26,47 @@ PLUGIN_DIR = os.path.dirname(HERE)                      # cp_plugins/
 SANDBOX = os.path.join(os.path.dirname(PLUGIN_DIR), "plugin_sandbox")
 sys.path.insert(0, PLUGIN_DIR)                          # so `import scverse_export` and `import exporttoanndata` work
 
+# Modules that reach cellprofiler_core at import time, directly or through test_assemble's
+# make_measurements, so pytest cannot collect them without it. A module belongs here if
+# `python -c "import tests.<name>"` fails on a plain checkout.
+if not HAVE_CELLPROFILER:
+    collect_ignore = ["test_advice.py", "test_assemble.py", "test_exporttoanndata.py",
+                      "test_fidelity.py", "test_preview.py"]
+
+
+def _sandbox_json(*parts):
+    """One recorded fixture file, or a skip naming what is missing. Recording them needs a real
+    CellProfiler install (see the plugin README), so absence is a normal state, not a failure."""
+    path = os.path.join(SANDBOX, *parts)
+    if not os.path.exists(path):
+        pytest.skip(f"recorded fixture not available: {os.path.relpath(path, os.path.dirname(PLUGIN_DIR))}")
+    with open(path) as fd:
+        return json.load(fd)
+
 
 @pytest.fixture(scope="session")
 def probe():
-    with open(os.path.join(SANDBOX, "probe", "out", "full.json")) as fd:
-        return json.load(fd)
+    return _sandbox_json("probe", "out", "full.json")
 
 
 @pytest.fixture(scope="session")
 def cpm_columns():
-    with open(os.path.join(SANDBOX, "cpm_alignment", "cpm_columns.json")) as fd:
-        return json.load(fd)
+    return _sandbox_json("cpm_alignment", "cpm_columns.json")
 
 
 @pytest.fixture(scope="session")
 def mapping_cells():
-    with open(os.path.join(SANDBOX, "cpm_alignment", "mapping_cells.json")) as fd:
-        return json.load(fd)
+    return _sandbox_json("cpm_alignment", "mapping_cells.json")
 
 
 @pytest.fixture(scope="session")
 def meas_arrays():
     out = {}
     for obj in ("Nuclei", "Cells", "Cytoplasm", "PH3"):
-        z = numpy.load(os.path.join(SANDBOX, "probe", "out", "arrays", f"meas_{obj}.npz"))
+        path = os.path.join(SANDBOX, "probe", "out", "arrays", f"meas_{obj}.npz")
+        if not os.path.exists(path):
+            pytest.skip(f"recorded fixture not available: meas_{obj}.npz")
+        z = numpy.load(path)
         out[obj] = {k: z[k] for k in z.files}
     return out
 
