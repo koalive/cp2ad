@@ -39,16 +39,20 @@ class Export:
 def build_export(ctx: Context, m, policy: str = "flag",
                  exporter_settings: Dict[str, Any] = None,
                  wants_mapping_uns: bool = False,
-                 sample_tags: Optional[Sequence[str]] = None) -> Export:
+                 sample_tags: Optional[Sequence[str]] = None,
+                 naming: Optional[SampleNaming] = None) -> Export:
     """One row per cell across every image set in this run, with the per-object tables it was
     joined from. `uns["cellprofiler"]` carries the pipeline provenance on every table;
     `uns["cellprofiler_mapping"]` carries the channel, object and measurement tables when asked
     for, on the joined table only.
 
     `sample_tags` names the Metadata tags that form the sample key; None detects them. Resolved
-    once here and passed down, so every object's table names its rows the same way.
+    once here and passed down, so every object's table names its rows the same way. Pass `naming`
+    to supply a scheme already resolved elsewhere, which ExportForSpatialData does because it has
+    to name files in run() under the same scheme post_run() names rows with.
     """
-    naming = resolve_naming(ctx, m, sample_tags)
+    if naming is None:
+        naming = resolve_naming(ctx, m, sample_tags)
     prov = provenance(ctx, m, exporter_settings or {}, naming=naming)
     per_object = {obj: build_object_table(ctx, m, obj, naming=naming) for obj in ctx.roles.values()}
     joined = join_tables(ctx, m, per_object, policy=policy)

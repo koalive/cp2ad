@@ -182,6 +182,33 @@ def resolve_sample_naming(md_feats: Sequence[str], values: Dict[int, Dict[str, A
         note=note + ", plus the image number because those tags do not tell every image set apart")
 
 
+def stable_sample_naming(md_feats: Sequence[str],
+                         requested: Optional[Sequence[str]] = None) -> SampleNaming:
+    """Naming that does not depend on which image sets the caller can see.
+
+    resolve_sample_naming decides whether to append the image number by checking the real values,
+    which needs every image set at once. ExportForSpatialData cannot do that: run() names files one
+    cycle at a time, possibly in a worker process, while post_run() names table rows in the main
+    process, and the two have to agree exactly or a manifest row points at a file that was written
+    under another name. So the tags come from the pipeline, which every process sees identically,
+    and the image number is always included, which makes keys unique by construction instead of by
+    a check. The cost is a slightly longer key when the tags would have sufficed.
+    """
+    if requested is not None:
+        tags = tuple(requested)
+        missing = [t for t in tags if t not in md_feats]
+        if missing:
+            return SampleNaming(tags=(), with_image_number=True, mode=MANUAL,
+                                note="set manually, but this pipeline has no " +
+                                     ", ".join(t[len(PREFIX):] for t in missing) +
+                                     "; the image number is used alone")
+        note = "set manually: " + ", ".join(t[len(PREFIX):] for t in tags) if tags else \
+            "no tags set, so the image number names the field of view"
+        return SampleNaming(tags=tags, with_image_number=True, mode=MANUAL, note=note)
+    tags, note = detect_sample_tags(md_feats)
+    return SampleNaming(tags=tags, with_image_number=True, mode=AUTOMATIC, note=note)
+
+
 def sample_key(md: Dict[str, Any], image_number: int, naming: SampleNaming) -> str:
     """One field of view's identity, e.g. `P1_A01_1` from Plate/Well/Site, `A02_03` from
     Well/Field, or `img3` when the pipeline has nothing usable. Unique within a run by
