@@ -1,6 +1,7 @@
-"""Spec section 5 advice: what to change in the pipeline so the exported object carries maximum
-information. Plain strings, so the module can raise them as one ValidationError at pipeline-load
-time and log the same text during the run."""
+"""What to change in the pipeline so the exported object carries as much information as possible.
+
+Plain strings, so a module can raise them as one ValidationError at pipeline-load time and log the
+same text during the run."""
 from __future__ import annotations
 
 from typing import List

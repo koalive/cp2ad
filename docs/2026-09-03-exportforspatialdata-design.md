@@ -91,7 +91,7 @@ Every segmentation by default, not only the primary, secondary, and tertiary rol
 
 Multi-select overrides for each. Settings otherwise mirror ExportToAnnData: `directory`, `prefix`, the role settings, `autoconfig`, the preview button, `policy`, `wants_advanced`, `wants_overwrite`. Phase 2 adds an opt-in stitching toggle, off by default.
 
-The preview dialog gains a fifth table listing the planned elements, so the user sees the file list before starting a run.
+The preview dialog gains a fifth table listing the planned elements, so the user sees the file list before starting a run (step 6, not started).
 
 ## The table stays cell-level
 
@@ -162,12 +162,15 @@ Phase 1, the export:
 3. `scverse_export/raster.py`, unit-tested against plain numpy arrays, no CellProfiler dependency needed.
 4. `scverse_export/export.py`, extracted from `ExportToAnnData.post_run()`, with its tests still passing as proof nothing changed.
 5. `exportforspatialdata.py`: settings and `post_run()` first, then `run()` once the Workspace calls are confirmed.
+6. The preview button on ExportForSpatialData, with the planned-elements table.
+
+Steps 1 to 5 are done and validated against a real GUI run. Step 6 is not started: ExportForSpatialData currently has no preview button, so the planned file list is only visible after a run, in the manifest.
 
 Phase 2, stitching metadata:
 
-6. Opt-in toggle, the metadata probe, the offset and pixel-size fields in `elements`, and the refuse-rather-than-guess path.
+7. Opt-in toggle, the metadata probe, the offset and pixel-size fields in `elements`, and the refuse-rather-than-guess path.
 
 ## Open questions
 
-1. Whether the CellProfiler build you will run carries real `zarr`, which would let the module skip HDF5 entirely. Worth checking before step 3.
+1. ~~Whether the CellProfiler build carries real `zarr`.~~ Answered: 4.2.8 does not, so both modules write HDF5 through `h5py`. See "Why HDF5 and not Zarr".
 2. Where the well-level rollup eventually lives, importer or downstream. Nothing is blocked on it.

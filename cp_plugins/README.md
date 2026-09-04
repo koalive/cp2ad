@@ -1,19 +1,79 @@
-# ExportToAnnData, a CellProfiler plugin
+# CellProfiler plugins for the scverse ecosystem
 
-Writes one `.h5ad` per run with one row per cell. Feature names, `obs`/`uns` keys and layout match
+Two modules, sharing one export backend:
+
+| Module | Writes | Read it with |
+|---|---|---|
+| **ExportToAnnData** | one `.h5ad` per run, one row per cell | anndata, scanpy, squidpy |
+| **ExportForSpatialData** | one folder per plate: image stacks, label arrays, and the same table | a SpatialData importer (separate) |
+
+Feature names, `obs`/`uns` keys and layout match
 `squidpy.experimental.im.calculate_image_features` (cp_measure naming), so a CellProfiler run and a
-squidpy run on the same masks are interchangeable per compartment. Design: `../docs/2026-08-29-exporttoanndata-design.md`.
+squidpy run on the same masks are interchangeable per compartment. Both modules build their table
+the same way, so [Object roles](#object-roles), [What lands where](#what-lands-where) and
+[Row names](#row-names) describe both.
 
-## Use
-1. Point CellProfiler at this folder: `Preferences -> CellProfiler plugins directory`, or headless
-   `--plugins-directory=/path/to/cp_plugins`.
-2. Add **ExportToAnnData**, usually at the end. Defaults work for IdentifyPrimary -> Secondary ->
-   Tertiary pipelines. A module after it that makes features may not have them exported, which
-   raises a warning rather than an error: another exporter or SaveImages after it is normal.
-3. Output: `<prefix>.h5ad` (joined, `var_names = <Object>__<feature>`), optionally `<prefix>_<Object>.h5ad`.
+ExportForSpatialData's design notes, including what is deferred to a second phase:
+[`../docs/2026-09-03-exportforspatialdata-design.md`](../docs/2026-09-03-exportforspatialdata-design.md).
+
+## Install
+Point CellProfiler at this folder: `Preferences -> CellProfiler plugins directory`, or headless
+`--plugins-directory=/path/to/cp_plugins`. Both modules appear under *File Processing*.
+
+```sh
+/Applications/CellProfiler.app/Contents/MacOS/cp -c -r -p pipeline.cppipe -i images -o out --plugins-directory=cp_plugins
+```
+
+Add either module at the end of the pipeline. A module after it that makes features may not have
+them exported, which raises a warning rather than an error: another exporter or SaveImages after it
+is normal. Both modules in one pipeline is normal too.
+
+## ExportToAnnData
+Writes `<prefix>.h5ad` (joined, `var_names = <Object>__<feature>`), optionally also
+`<prefix>_<Object>.h5ad` per compartment. Defaults work for IdentifyPrimary -> Secondary ->
+Tertiary pipelines. Nothing happens during the run: the whole object is assembled and written in
+`post_run`.
+
+## ExportForSpatialData
+Exports the pixels alongside the table, which is what ExportToAnnData cannot do: image stacks and
+segmentation masks on disk, so a SpatialData object can be assembled with images, labels and the
+per-cell table in one coordinate system.
+
+One folder per plate, because one SpatialData object per plate is the target:
+
+```
+<prefix>_export/
+    <plate>/
+        images/<sample key>.h5              (C, Y, X) float32, one stack per field of view
+        labels/<sample key>/<object>.h5     (Y, X) integer labels, 0 for background
+        tables/<prefix>.h5ad                that plate's rows, manifest in uns
+```
+
+Image stacks and label arrays are written cycle by cycle, so a long run does not hold them in
+memory. The tables are written in `post_run`, one per plate, each a subset of the run's rows with
+`uns["qc_summary"]` recounted for that plate.
+
+An importer reads `uns["cellprofiler_mapping"]["elements"]` and never walks the folder or parses a
+file name. One row per (field of view, element), with `path` relative to the plate folder, so the
+folder can be moved or renamed. Each row carries the `shape` and `dtype` read back off the file
+that was written, and `status` is `failed` with the reason in `error` when a file is missing or
+unreadable. `image_channels` gives the channel axis as (`channel`, `stack_index`) pairs.
+`obs["region_key"]` on the table joins to the `region_key_value` of a labels row.
+
+A cycle that fails to write does not stop the run: the error is logged, recorded as an image
+measurement, and reported in the manifest.
+
+*Images to export* and *Segmentations to export* are prefilled on first open, with every channel
+loaded from a file and every object the pipeline made. Narrow them as you like; a narrowed
+selection stays narrowed.
+
+**With no `Metadata_Plate` in the pipeline, every image set is assumed to come from one plate** and
+lands in a single folder named `plate`. That is wrong for a run spanning several plates, and there
+is no way to tell from the metadata, so the module reports it as a warning and logs it at the start
+of the run. Define a plate tag in Metadata if the run covers more than one plate.
 
 ## Object roles
-Objects carry one of three roles -- `primary`, `secondary`, `tertiary`. In a standard pipeline
+Objects carry one of three roles: `primary`, `secondary`, `tertiary`. In a standard pipeline
 primary = nucleus, secondary = cell, tertiary = cytoplasm, but the names stay generic because
 nothing in the exporter assumes that biology. The joined row is one secondary object (or, when
 there is none, one primary object) with its primary and tertiary object joined onto it.
@@ -42,9 +102,13 @@ most_related_secondary | most_related_primary | null, candidates: [...]}`). The 
 when the pipeline produces no objects at all.
 
 **Manual** shows *Primary objects (e.g. nuclei)*, *Secondary objects (e.g. cells)* and *Tertiary
-objects (e.g. cytoplasm)*. Manual mode exports exactly the roles you set -- a role left at `None` is
-not exported and nothing is auto-detected alongside your choice, so naming only the primary object
+objects (e.g. cytoplasm)*. Manual mode exports exactly the roles you set. A role left at `None` is
+not exported, and nothing is auto-detected alongside your choice, so naming only the primary object
 gives a one-compartment export of that object.
+
+Roles scope the per-cell table only. ExportForSpatialData exports label arrays for every object by
+default, roles included or not, since a pipeline that segments spots outside the role chain still
+wants them in the viewer.
 
 A `FilterObjects` module is followed as a *rename* only when it relabels several objects together
 (the JUMP border-cleanup step that relabels nucleus and cell in one go). A single-pair
@@ -52,10 +116,6 @@ A `FilterObjects` module is followed as a *rename* only when it relabels several
 ordinary candidate, but it never stands in for its input. So a pipeline that measures
 `FilteredNuclei` exports `FilteredNuclei`, while one that filters `Nuclei` into `PH3PosNuclei` and
 keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only the positive nuclei.
-
-```sh
-/Applications/CellProfiler.app/Contents/MacOS/cp -c -r -p pipeline.cppipe -i images -o out --plugins-directory=cp_plugins
-```
 
 ## What lands where
 - `X`: float32, NaN kept, no constant-column drop. Only numeric CellProfiler columns (`float`,
@@ -85,7 +145,7 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
     `Neighbors_{First,Second}ClosestDistance` and `Neighbors_AngleBetweenNeighbors`. Local crowding,
     density, and the alignment between neighboring cells count as biology here, unlike an object's
     own absolute position.
-  - Press **"See where each measurement will land"** on the module itself to see this split
+  - Press **"See where each measurement will land"** on ExportToAnnData to see this split
     applied to your own pipeline, before running it. Three tables cover the per-cell columns
     (channels measured, objects, measurements), each naming the module that produced the entry and,
     for measurements, the exact resulting name. They list only what becomes a per-cell column, so
@@ -97,7 +157,7 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
     DataFrames.
 - `obs`: `region`, `label_id`, `ImageNumber`, `Metadata_*`, `n_missing_features`, the extrinsic
   columns above, plus `qc_flag` and `count_<child>` **on the joined file only** (the per-object
-  files have neither).
+  files have neither). ExportForSpatialData adds `region_key`.
 - `obs_names`: `<sample key>_<label>`, where the sample key identifies the field of view and the
   label is the integer CellProfiler gave the object there. See "Row names" below.
 - `obsm["spatial"]`: cell centers in site pixel coordinates, the base object's `Location_Center_X/Y`.
@@ -125,14 +185,17 @@ keeps measuring `Nuclei` exports `Nuclei` rather than silently exporting only th
   column-oriented, so `pd.DataFrame(adata.uns["cellprofiler"]["image"])` gives the table directly.
   `uns["cellprofiler"]["channels"]` likewise names **every** channel, including ones no measurement
   reads.
-- `uns["cellprofiler_mapping"]` (only with *Also write the mapping tables to .uns?*): the preview's
-  `channels`, `objects` and `measurements` tables, written in AnnData's dataframe encoding, so each
-  reads back as a `pd.DataFrame` ready to filter and sort.
+- `uns["cellprofiler_mapping"]`: the preview's `channels`, `objects` and `measurements` tables,
+  written in AnnData's dataframe encoding, so each reads back as a `pd.DataFrame` ready to filter
+  and sort. Optional on ExportToAnnData (*Also write the mapping tables to .uns?*); always written
+  by ExportForSpatialData, which adds `elements` and `image_channels` to it.
 
 ## Row names
 
 Each row is named `<sample key>_<label>`: the field of view, then the integer CellProfiler gave the
-object in it. *How to build row names* is an advanced setting.
+object in it. The sample key is an advanced setting, called *How to build row names* on
+ExportToAnnData and *How to name fields of view* on ExportForSpatialData, where the same key also
+names the image stacks, the label arrays and the coordinate systems.
 
 **Automatic** (default) reads the key off the pipeline's Metadata tags, taking at most one plate
 part (`Plate`, `Barcode`, `PlateID`), one well part (`Well`, or `Row` plus `Column`), and one site
@@ -156,23 +219,49 @@ tags from the current pipeline and switches both to Manual. It cannot check uniq
 real values, so the run still appends `img<n>` if the pinned tags turn out not to separate the
 image sets.
 
-The resolved scheme is logged, recorded in `uns["cellprofiler"]["sample_naming"]`, and shown at the
-top of "See where each measurement will land".
+The resolved scheme is logged and recorded in `uns["cellprofiler"]["sample_naming"]`.
+ExportToAnnData also shows it at the top of "See where each measurement will land".
+
+ExportForSpatialData **always** appends `img<n>`, giving `A02_03_img1_5`. It names files during the
+run and table rows afterwards, possibly from different processes, and the two have to agree exactly
+or a manifest row points at a file written under another name. The uniqueness check needs every
+image set at once, which `run()` cannot see, so the image number makes keys unique by construction
+instead. The cost is a longer key when the tags alone would have done.
+
+## Limits
+- **Image stacks are written as CellProfiler's `pixel_data`**, which is float32 rescaled to [0, 1],
+  not the source `uint16`. Values are the ones the pipeline measured, so the export is faithful to
+  the run, but it is not the raw file and it is 2x the size of `uint16`. Recovering the original
+  range needs the source images.
+- **Label dtype varies between fields of view.** CellProfiler narrows `objects.segmented` to fit
+  the object count, so a field with 102 objects gives `int8` and a busier one `int16`. Every array
+  is correct on its own, and the manifest reports each dtype, but an importer stacking them has to
+  promote rather than assume one type.
+- **Nothing is streamed on the table side.** See below.
 
 ## Scaling
-Sized for **per-well or per-site-batch CellProfiler runs**. Nothing is streamed: `run()` is a no-op and the
-whole object is assembled in `post_run`, so every cell of every image set in one CellProfiler run is held in
-memory at once. `build_object_table` fills `X` feature-major -- one `get_measurement` call reads one
-feature's float64 series across every image set, writes it into `X`'s float32 rows, then drops it before
-the next feature -- so peak memory is `X` (float32, the whole object) plus one feature's float64 series,
-not every feature's float64 copy at once. A whole plate in a single run -- of the order of 5M cells x 8k
-features, ~160 GB as float32 for `X` alone -- will still exhaust memory. Split the plate into per-well or
-per-site runs and concatenate the `.h5ad` files afterwards. `obs_names` stay unique across runs when the
-sample key includes a plate and a site tag, since those identify a field of view independently of the run
-it was processed in; a key that falls back to `img<n>` does not, because image numbers restart at 1 every
-run. The log line before each write reports the shape and size.
+Sized for per-well or per-site-batch runs. Both modules assemble the table in `post_run`, so every
+cell of every image set in one CellProfiler run is in memory at once. ExportForSpatialData streams
+its image stacks and label arrays per cycle, but not its table.
+
+`build_object_table` fills `X` feature-major. One `get_measurement` call reads one feature's
+float64 series across every image set, writes it into `X`'s float32 rows, then drops it before the
+next feature. Peak memory is therefore `X` plus one feature's float64 series, not a float64 copy of
+every feature at once.
+
+A whole plate in a single run will still exhaust memory: on the order of 5M cells x 8k features is
+~160 GB as float32 for `X` alone. Split the plate into per-well or per-site runs and concatenate
+afterwards. `obs_names` stay unique across runs when the sample key includes a plate and a site tag,
+since those identify a field of view independently of the run that processed it. A key that falls
+back to `img<n>` does not, because image numbers restart at 1 every run. The log line before each
+write reports the shape and size.
 
 ## Tests
+Most of the suite needs only numpy and h5py:
+```sh
+cd cp_plugins && python -m pytest -q
+```
+The tests that import `cellprofiler_core` are skipped without it. To run those too:
 ```sh
 cd plugin_sandbox && pixi install && pixi run pip install "numpy<2" "cython<3" setuptools wheel \
   && pixi run pip install --no-build-isolation python-javabridge==4.0.5 \

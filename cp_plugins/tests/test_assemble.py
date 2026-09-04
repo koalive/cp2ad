@@ -251,7 +251,7 @@ def test_join_two_image_sets(ctx, meas_arrays):
     numpy.testing.assert_allclose(t.X[289:, jn], meas_arrays["Nuclei"]["AreaShape_Area"].astype("float32"))
 
 
-# ---- Count_ fallbacks and length mismatches (spec section 5: never a silent NaN / silent skip) ----
+# ---- Count_ fallbacks and length mismatches (never a silent NaN, never a silent skip) ----
 
 def test_missing_count_falls_back_to_longest_array(ctx, meas_arrays, caplog):
     with caplog.at_level(logging.WARNING, logger="scverse_export.assemble"):

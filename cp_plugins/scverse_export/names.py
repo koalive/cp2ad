@@ -1,6 +1,6 @@
 """CellProfiler feature identity -> cp_measure / squidpy column names.
 
-Rules are spec section 2c; they operate on the *structured* identity a CellProfiler module
+The rules operate on the *structured* identity a CellProfiler module
 reports through get_categories/get_measurements/get_measurement_images/get_measurement_scales,
 never on regex over the CP name.
 """

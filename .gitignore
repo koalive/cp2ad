@@ -21,3 +21,8 @@ Testrun_cp2sd_*.h5ad
 # Root-anchored on purpose: an unanchored *_export/ also matches cp_plugins/scverse_export/ and
 # silently untracks source files added to it.
 /*_export/
+
+# BBBC021 example data: downloaded from the Broad Bioimage Benchmark Collection, ~2.6 GB.
+/BBBC021_v1_*.csv
+/BBBC021_v1_images_*.zip
+/Week1_*/

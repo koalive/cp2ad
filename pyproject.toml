@@ -1,7 +1,7 @@
 [project]
 name = "scverse-cp-hackathon-2026"
 version = "0.1.0"
-description = "Add your description here"
+description = "CellProfiler plugins exporting to AnnData and SpatialData"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -10,4 +10,11 @@ dependencies = [
     "pandas>=2.3.3",
     "pyqt6>=6.11.0",
     "scanpy>=1.11.5",
+]
+
+[dependency-groups]
+# The plugin tests run against this environment, not CellProfiler's. The parts of the suite that
+# import cellprofiler_core skip themselves when it is absent, which it is here.
+dev = [
+    "pytest>=8",
 ]

@@ -1,4 +1,4 @@
-"""Spec section 5 advice messages."""
+"""Advice messages: what to change in the pipeline before exporting."""
 import dataclasses
 
 from scverse_export.advice import advice

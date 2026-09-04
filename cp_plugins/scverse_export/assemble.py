@@ -353,7 +353,7 @@ def join_tables(ctx: Context, m, tables: Dict[str, Table], policy: str = "flag")
         flags[idx[prim] < 0] = FLAG_NO_PRIMARY
         used = set(idx[prim][idx[prim] >= 0].tolist())
         primaries_without_secondary = tp.X.shape[0] - len(used)
-        # primary side of the 1:1:1 check: one primary claimed by several secondaries (spec section 5)
+        # primary side of the 1:1:1 check: one primary claimed by several secondaries
         if n:
             _, inverse, counts = numpy.unique(idx[prim], return_inverse=True, return_counts=True)
             shared = (counts[inverse] > 1) & (idx[prim] >= 0) & (flags == FLAG_OK)
